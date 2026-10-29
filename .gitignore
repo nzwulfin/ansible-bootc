@@ -1,6 +1,11 @@
 # Git worktrees (managed by git wt)
 .worktrees/
 
+# Generated PSK — written by scripts/generate-demo-keys.sh into the base image
+# build context. This is a build artifact and must never be committed.
+# Interface: path must exactly match what scripts/generate-demo-keys.sh writes.
+images/base/rootfs/var/home/ansible/.ssh/authorized_keys
+
 # Ansible private keys and vault credentials
 ansible/keys/id_*
 !ansible/keys/id_*.pub
