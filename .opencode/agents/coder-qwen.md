@@ -1,6 +1,6 @@
 ---
 description: Implementation engineer (Qwen 3.8 27B) — authors files for assigned tasks
-mode: subagent
+mode: all
 model: vllm/publishers/prelude-maas/models/qwen38-27b#high
 ---
 

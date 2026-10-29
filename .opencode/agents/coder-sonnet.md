@@ -1,6 +1,6 @@
 ---
 description: Implementation engineer (Claude Sonnet 4.6) — authors files for assigned tasks
-mode: subagent
+mode: all
 model: google-vertex/claude-sonnet-4-6@default#high
 ---
 
