@@ -13,6 +13,7 @@ FROM corp-base:latest
 
 # ── Package layer ──────────────────────────────────────────────────────────────
 # mariadb-server  : the database engine
+# mariadb         : client CLI utilities for local administrative access
 # python3-PyMySQL : required by community.mysql Ansible modules *and* by any
 #                   local DB client work; Ansible must not install this at
 #                   runtime (G9)
