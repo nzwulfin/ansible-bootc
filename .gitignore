@@ -1,0 +1,21 @@
+# Git worktrees (managed by git wt)
+.worktrees/
+
+# Ansible private keys and vault credentials
+ansible/keys/id_*
+!ansible/keys/id_*.pub
+ansible/keys/.vault_password
+ansible/keys/*.vault_password
+
+# Ansible retry files
+*.retry
+
+# Python byte-code
+__pycache__/
+*.pyc
+*.pyo
+
+# System / Editor
+.DS_Store
+*.swp
+*~
