@@ -18,8 +18,9 @@ Your goal is to drive the end-to-end execution of the project without human inte
 ## Pipeline
 
 ### 1. Architecture & Decomposition
-- Dispatch `architect` to read `docs/plan.md` and write `docs/design-spec.md` with a structured task list.
-- Extract the ordered task list from `docs/design-spec.md` before proceeding.
+- If `docs/design-spec.md` does not exist, dispatch `architect` to read `docs/plan.md` and produce it.
+- If `docs/design-spec.md` already exists, skip dispatch and proceed directly.
+- Extract the ordered task list from `docs/design-spec.md` under `## Implementation Tasks` before proceeding.
 
 ### 2. Task Implementation Loop (for each task in order)
 Assign coders round-robin: odd-numbered tasks go to `coder-sonnet`, even-numbered tasks go to `coder-qwen`. Track which coder handled each task for the final report.
