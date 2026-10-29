@@ -1,0 +1,17 @@
+---
+# requirements.yml — Ansible collection dependencies for the bootc + Ansible reference pattern.
+#
+# Install with:
+#   cd ansible/
+#   ansible-galaxy collection install -r requirements.yml
+
+collections:
+  # community.mysql: provides mysql_db (database creation) and mysql_user (account management)
+  # used by the mysql_instance role to provision the MariaDB instance at runtime.
+  - name: community.mysql
+    version: ">=3.0.0"
+
+  # ansible.posix: provides authorized_key (SSH key management) and firewalld (firewall management)
+  # used by the bootstrap_key_rotation role (authorized_key) and the mysql_instance role (firewalld).
+  - name: ansible.posix
+    version: ">=1.5.0"

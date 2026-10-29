@@ -1,0 +1,32 @@
+---
+# group_vars/all/vars.yml — Non-sensitive variables visible to every host and role.
+#
+# This file uses the directory form of group_vars (all/ directory rather than all.yml)
+# which is mandatory: a flat file named all.vault.yml has stem "all.vault" and would
+# never be auto-loaded by the host_group_vars plugin, silently stripping app_db_password
+# from scope (design-spec.md §7.6).
+
+# Management account name — must match the account baked into the base image (G2).
+# Used by connection setup; also the default user: for the authorized_key module
+# in the bootstrap_key_rotation role.
+ansible_user: ansible
+
+# Path to the bootstrap (PSK) public key file, relative to the ansible/ run directory (G11).
+# Read by the bootstrap_key_rotation role via lookup('file', ...) to remove the PSK entry.
+# The script scripts/generate-demo-keys.sh writes this file.
+bootstrap_pubkey_path: keys/id_bootstrap.pub
+
+# Path to the live management public key file, relative to the ansible/ run directory (G11).
+# Read by the bootstrap_key_rotation role via lookup('file', ...) to install the live key.
+# The script scripts/generate-demo-keys.sh writes this file.
+live_pubkey_path: keys/id_live.pub
+
+# Application database name — shared between mysql_instance (creates the database) and
+# app_instance (writes the name into config.ini). Must be in all/ because group-scoped
+# variables are not visible across groups (design-spec.md §7.6).
+app_db_name: corpapp
+
+# Application database account name — shared between mysql_instance (creates the account)
+# and app_instance (writes the username into config.ini). Same cross-group visibility
+# requirement as app_db_name.
+app_db_user: corpapp_user

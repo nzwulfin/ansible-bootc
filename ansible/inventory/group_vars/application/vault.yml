@@ -1,0 +1,14 @@
+---
+# group_vars/application/vault.yml — Vault-encrypted credentials for the application host group.
+#
+# STRUCTURAL PLACEHOLDER — no application-group-specific secrets exist in this design.
+# This file exists for structural completeness and to allow future additions without
+# a directory layout change (design-spec.md §7.6).
+#
+# If group-specific secrets are added in the future, encrypt this file with:
+#   cd ansible/
+#   ansible-vault encrypt inventory/group_vars/application/vault.yml
+#
+# NOTE: app_db_password is NOT stored here. It lives exclusively in
+# group_vars/all/vault.yml (G4) so that both the mysql_instance and app_instance
+# roles resolve the same value regardless of which host group they run against.

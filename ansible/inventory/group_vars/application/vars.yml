@@ -1,0 +1,27 @@
+---
+# group_vars/application/vars.yml — Non-sensitive variables for the application host group.
+#
+# Variables here are visible only to hosts in the 'application' group.
+
+# IP address of the database host (db01).
+#
+# Interface agreement (design-spec.md §7.5, §9): this value MUST be identical to
+# db01's ansible_host in inventory/hosts.yml. If they diverge, the config.ini
+# written by app_instance will point at the wrong database host, and the application
+# will fail to connect while reporting a misleading hostname in its health endpoint.
+#
+# Used by the app_instance role in the config.ini.j2 template:
+#   [database]
+#   host = {{ db_host }}
+db_host: 192.168.122.10   # Must match db01.ansible_host in hosts.yml
+
+# Port for the application's health endpoint.
+#
+# The application binds this port on 127.0.0.1 (loopback) only — hardcoded in
+# corp-app.py; no external firewall rule is needed or opened (G7, design-spec.md §6.3).
+#
+# Interface agreements:
+#   - Must match [server] port in the config.ini written by app_instance/templates/config.ini.j2
+#   - Used by the app_instance role's URI health check:
+#       http://127.0.0.1:{{ app_port }}/health
+app_port: 8080
