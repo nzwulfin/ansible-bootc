@@ -1,0 +1,20 @@
+# ansible/keys/.gitignore
+#
+# This directory holds ONLY generated key material (output of
+# scripts/generate-demo-keys.sh) and this .gitignore file. No scripts reside
+# here (G13). All generated files must never be committed.
+
+# Bootstrap (PSK) key pair — baked into the base image; used for first-contact
+# onboarding only. Both private and public key files are excluded.
+id_bootstrap
+id_bootstrap.pub
+
+# Live management key pair — installed during onboarding by the
+# bootstrap_key_rotation Ansible role. Both private and public key files
+# are excluded.
+id_live
+id_live.pub
+
+# Vault password file — used by ansible-vault and ansible-playbook to decrypt
+# vault files. Must never be committed.
+.vault_pass
