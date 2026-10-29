@@ -1,0 +1,43 @@
+# corp-app.service — minimal corporate application service.
+#
+# Image-owned: this unit lives under /usr/lib/systemd/system/ so the
+# corporate definition updates unconditionally with the image. Admins
+# override behaviour via `systemctl edit corp-app`, which writes drop-ins
+# into /etc/systemd/system/corp-app.service.d/ — never by editing this
+# file (it would be lost on the next image update).
+#
+# G7 (baked, NOT enabled): this unit is deliberately never enabled in the
+# image. The service requires /etc/corp-app/config.ini, which only exists
+# after the app_instance Ansible role writes it at first contact;
+# enabling it at bake time would crash-loop a fresh install. Ansible
+# performs the enable + start.
+#
+# G12 (config path agreement): the process reads exactly
+# /etc/corp-app/config.ini (hardcoded in the executable and in the
+# Ansible template dest). The service runs as root — no User=/Group= is
+# set — so it can read the mode-0640 root-owned config file; acceptable
+# for the demo.
+
+[Unit]
+Description=Minimal corporate application (loopback health endpoint + MariaDB probe)
+After=network-online.target
+Wants=network-online.target
+# The MariaDB instance is remote (on the database host); there is no
+# local mariadb dependency to declare.
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/corp-app.py
+Restart=on-failure
+StandardOutput=journal
+StandardError=journal
+# Deliberately small sandboxing set: kept minimal to stay debuggable,
+# and each directive is overridable per instance via
+# `systemctl edit corp-app` (drop-ins layer on top of this baseline).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

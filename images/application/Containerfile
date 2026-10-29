@@ -1,0 +1,68 @@
+# Application bootc image — workload layer.
+#
+# Derives from the locally built platform/security base image and adds the
+# application workload: the app runtime, the Python DB client, the minimal
+# application executable, and its systemd unit. The value of this image is
+# the bake-time/runtime division, not the application logic
+# (see docs/plan.md).
+#
+# BUILD ORDER REQUIREMENT: the base image must be built first
+# (podman build -t corp-base:latest images/base/, after running
+# scripts/generate-demo-keys.sh). The FROM tag below is that locally
+# built base tag — the same tag the database image uses.
+#
+# G7 (service baked, NOT enabled): the unit is copied into the image but
+# this Containerfile never runs `systemctl enable corp-app`. The service
+# cannot start before its runtime config /etc/corp-app/config.ini
+# exists, and that file is written by Ansible (app_instance role) at
+# first contact. Enabling the unit at bake time would crash-loop a fresh
+# install before Ansible has run; Ansible performs the enable + start.
+#
+# G12 (config path agreement): the baked executable hardcodes
+# /etc/corp-app/config.ini; the Ansible template task writes the same
+# path; the unit's process (running as root) reads that same path.
+# Divergence between any two of the three silently breaks the app.
+#
+# No firewall step in this image (deliberate): the health endpoint binds
+# 127.0.0.1 only, so nothing external requires a port rule — the default
+# zone stays closed to the app. Do not add a firewall-offline-cmd step.
+
+FROM corp-base:latest
+
+# 1. Application runtime dependencies, installed and cleaned in a single
+#    layer. (G9: everything is baked at build time; no Ansible task ever
+#    runs a package manager at runtime.)
+#
+#    python3          the app's runtime. Already present in the base
+#                     image, so this is a no-op; it is listed so the app
+#                     layer's runtime set is explicit and self-documenting.
+#    python3-PyMySQL  the application connects to the remote MariaDB
+#                     instance at runtime to serve the health endpoint;
+#                     a runtime dependency that must be baked (G9).
+#    curl             required for on-host operator inspection of loopback health endpoint
+#                     (curl -s http://127.0.0.1:8080/health); since G9 forbids
+#                     runtime installs, it must be baked.
+RUN dnf install -y --nodocs \
+        python3 \
+        python3-PyMySQL \
+        curl \
+    && dnf clean all
+
+# 2. Install all baked application content in one step. rootfs/ mirrors
+#    the target filesystem, so the build context is the documentation of
+#    what lands where on a deployed system:
+#
+#      usr/lib/systemd/system/corp-app.service  -> service unit (baked,
+#                                                  NOT enabled: G7)
+#      usr/local/bin/corp-app.py                -> application executable
+#
+#    Everything lands under /usr (image-owned): it updates cleanly with
+#    the image. Nothing under /etc is shipped here — the runtime config
+#    /etc/corp-app/config.ini is written by Ansible only (G12).
+COPY rootfs/ /
+
+# 3. Final ownership and mode for the executable (Appendix B: root:root,
+#    0755). Executable by all; the unit runs it as root, so no user
+#    ownership is required.
+RUN chown root:root /usr/local/bin/corp-app.py \
+    && chmod 0755 /usr/local/bin/corp-app.py
