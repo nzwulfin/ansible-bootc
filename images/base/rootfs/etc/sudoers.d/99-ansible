@@ -1,0 +1,14 @@
+# Passwordless sudo for the ansible management account.
+#
+# Required for Ansible `become: true` operations without an interactive
+# password prompt; SSH pipelining + NOPASSWD is the standard bootc/Ansible
+# pattern.
+#
+# DEMO CONVENIENCE: this grants ALL commands to the ansible account on all
+# hosts. Production would scope the grant to specific commands.
+#
+# File name rule: the "99-" prefix ensures lexicographic processing after
+# any distribution drop-ins, and the name contains neither "~" nor ".",
+# both of which would cause sudo to ignore the file.
+
+ansible ALL=(ALL) NOPASSWD:ALL
