@@ -39,9 +39,9 @@ FROM corp-base:latest
 #    python3-PyMySQL  the application connects to the remote MariaDB
 #                     instance at runtime to serve the health endpoint;
 #                     a runtime dependency that must be baked (G9).
-#    curl             operator tooling for the loopback health check on
-#                     the app host (curl -s http://127.0.0.1:8080/health);
-#                     since G9 forbids runtime installs, it must be baked.
+#    curl             required for on-host operator inspection of loopback health endpoint
+#                     (curl -s http://127.0.0.1:8080/health); since G9 forbids
+#                     runtime installs, it must be baked.
 RUN dnf install -y --nodocs \
         python3 \
         python3-PyMySQL \
