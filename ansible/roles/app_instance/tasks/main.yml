@@ -1,0 +1,99 @@
+---
+# app_instance — tasks/main.yml
+#
+# First-contact provisioning of the application instance. The order is
+# normative (design-spec.md §8.3):
+#   1. Ensure the config directory exists.
+#   2. Render the runtime config from config.ini.j2 (notify restart on change).
+#   3. Enable and start the service (G7: Ansible enables, the image does not).
+#   4. Wait for the loopback health endpoint to answer HTTP 200.
+#   5. Assert the health body reports database == "connected".
+#
+# The play sets become: true; root is required for the /etc writes and for
+# systemd management. No become: false override is used anywhere in this
+# role.
+#
+# Constraints honoured:
+#   G4  — app_db_password is rendered into the template from
+#          group_vars/all/vault.yml only; it is never declared in this
+#          role's defaults and never appears in any task literal.
+#   G7  — the image ships the corp-app unit baked but NOT enabled. This
+#          role performs the first-contact enablement, and only after the
+#          config file exists (the service cannot start before then).
+#   G9  — no package installation; python3 and python3-PyMySQL are baked
+#          into the application image.
+#   G12 — the template dest /etc/corp-app/config.ini must stay identical to
+#          CONFIG_PATH in /usr/local/bin/corp-app.py and to the path the
+#          corp-app.service process reads.
+#
+# No firewall tasks on purpose: the health endpoint binds 127.0.0.1 only,
+# so nothing external requires a port and no port may be opened.
+
+- name: Ensure /etc/corp-app/ directory exists
+  ansible.builtin.file:
+    path: /etc/corp-app
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ app_config_dir_mode }}"
+  # The service runs as root and reads this directory. Mode is a role
+  # default (0750, Appendix B reference).
+
+- name: Deploy application runtime configuration from template
+  ansible.builtin.template:
+    src: config.ini.j2
+    dest: /etc/corp-app/config.ini
+    owner: root
+    group: root
+    mode: "{{ app_config_file_mode }}"
+  notify: Restart corp-app
+  # G12: dest must match CONFIG_PATH in corp-app.py exactly.
+  # The file carries the database password, hence the restrictive mode
+  # (0640 root:root, Appendix B reference).
+  # A content change notifies the restart handler: corp-app.py parses the
+  # config once at startup and caches it, so a running service picks up
+  # endpoint/credential changes only after a restart.
+
+- name: Enable and start corp-app (first contact)
+  ansible.builtin.systemd:
+    name: "{{ app_service_name }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  # G7: the image never enables this unit — Ansible does the enabling at
+  # first contact, now that the config file exists. daemon_reload: true
+  # guarantees a freshly baked unit file is visible to systemd.
+
+- name: Wait for the health endpoint to report HTTP 200
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_port }}/health"
+    method: GET
+    status_code: 200
+    return_content: true
+  register: app_health
+  # `default(0)`: while the service is still coming up the request is
+  # refused and the result may carry no status key at all; without the
+  # default the conditional would error instead of retrying.
+  until: app_health.status | default(0) == 200
+  retries: "{{ app_health_retries }}"
+  delay: "{{ app_health_delay }}"
+  # The endpoint is loopback-only (never exposed externally), so the check
+  # runs on the host itself. corp-app probes the remote database on every
+  # request: a 503 "database: error" body fails the status check and drives
+  # the retry loop, so a 200 also proves the database connection.
+  # return_content keeps the JSON body for the assertion below.
+
+- name: Verify health endpoint reports a connected database
+  ansible.builtin.assert:
+    that:
+      - app_health.status == 200
+      - app_health.json.database == "connected"
+    fail_msg: >-
+      corp-app health endpoint did not report a connected database:
+      status={{ app_health.status | default('unknown') }},
+      body={{ app_health.content | default('unavailable') }}.
+      Check the database host, the firewall rich rule on the database
+      host, and the credentials in /etc/corp-app/config.ini.
+    success_msg: >-
+      corp-app is healthy: http://127.0.0.1:{{ app_port }}/health
+      reports database connected.

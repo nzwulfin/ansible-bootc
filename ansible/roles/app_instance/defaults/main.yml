@@ -1,0 +1,58 @@
+---
+# app_instance — defaults/main.yml
+#
+# Overridable operational knobs only, each with a sensible default.
+#
+# Deliberately ABSENT (design-spec.md §8.3 "Must not do"):
+#   - app_db_password — G4: declared ONLY in group_vars/all/vault.yml. Both
+#     the mysql_instance role (account creation) and this role (config
+#     template) must resolve the identical value from that single location;
+#     a role default would create a second source of truth.
+#   - app_db_name, app_db_user — shared values resolved from
+#     group_vars/all/vars.yml; must not be shadowed by a role default.
+#   - db_host — instance value resolved from group_vars/application/vars.yml
+#     (the IP of db01); must not be shadowed by a role default, and a role
+#     default must never carry a host IP.
+#   - app_port — instance value resolved from group_vars/application/vars.yml
+#     (the loopback health-endpoint port); must not be shadowed by a role
+#     default. It is used by both the config template and the URI health
+#     check, and both must read the same group_vars value.
+#   - the config path — fixed by G12 (/etc/corp-app/config.ini) and must NOT
+#     be an overridable default; it is hardcoded in the tasks and must stay
+#     identical to CONFIG_PATH in /usr/local/bin/corp-app.py.
+#
+# Constraints honoured:
+#   G4  — no credentials in role defaults.
+#   G9  — no package installation; python3-PyMySQL is baked into the image.
+
+# Mode for the /etc/corp-app/ directory (Appendix B reference: 0750,
+# root:root). The service runs as root and reads this directory; 0750 keeps
+# the directory out of world reach while the file inside carries credentials.
+app_config_dir_mode: "0750"
+
+# Mode for /etc/corp-app/config.ini (Appendix B reference: 0640, root:root).
+# The file carries the database password, so it must be restrictive.
+app_config_file_mode: "0640"
+
+# Name of the systemd unit this role enables and starts. The unit file is
+# baked into the application image (image-owned under /usr/lib) and is
+# deliberately NOT enabled there (G7); this role performs the first-contact
+# enablement, only after the config file has been written.
+app_service_name: corp-app
+
+# Database TCP port written to the [database] section of config.ini.
+# Overridable operational knob with the MariaDB default. This is NOT a value
+# owned by group_vars (it is absent from the §7.6 variable schema), so a role
+# default is appropriate; the template also carries a `| default(3306)` as a
+# defence-in-depth fallback.
+db_port: 3306
+
+# Health endpoint poll parameters for the URI wait task.
+#
+# corp-app probes the remote database on every /health request, so the first
+# HTTP 200 also proves the database connection (a 503 "database: error"
+# response drives the retry loop until the DB is reachable). A fresh
+# first-contact can take a few seconds (service start + first DB handshake);
+# 30 attempts x 5 s = up to 150 s covers slow VMs without blocking forever.
+app_health_retries: 30
+app_health_delay: 5

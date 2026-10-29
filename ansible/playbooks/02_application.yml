@@ -1,0 +1,38 @@
+---
+# ansible/playbooks/02_application.yml
+#
+# Configures the application instance on the application host group:
+# writes the runtime config (/etc/corp-app/config.ini), performs the
+# first-contact enablement and start of the corp-app service, and
+# verifies the loopback health endpoint reports a connected database.
+#
+# Standalone usage (run from the ansible/ directory — G11):
+#   ansible-playbook playbooks/02_application.yml
+#
+# AAP usage:
+#   Run as a separate job template with the live machine credential, after
+#   01_database.yml has completed successfully. The live key (configured as
+#   the default in ansible.cfg) is the correct credential for this phase —
+#   this play carries no ansible_ssh_private_key_file override, so the
+#   default live key applies.
+#   Under AAP, vault variables (app_db_password) are supplied via a custom
+#   credential or survey variable; variable names remain identical so no
+#   playbook changes are required.
+#
+# Constraints honoured:
+#   G4  — app_db_password resolves from group_vars/all/vault.yml and is
+#         rendered into the config by the app_instance role.
+#   G7  — the role performs the first-contact enablement of corp-app; the
+#         image ships the unit baked but disabled.
+#   G9  — no package management tasks; python3-PyMySQL is baked into the
+#         application image.
+#   G12 — the app_instance template dest (/etc/corp-app/config.ini)
+#         matches the hardcoded CONFIG_PATH in the application executable.
+
+- name: Configure and start the application instance
+  hosts: application
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: app_instance

@@ -1,0 +1,21 @@
+---
+# app_instance — handlers/main.yml
+#
+# Restart the application service after its runtime config changes.
+# corp-app.py parses /etc/corp-app/config.ini once at startup and caches
+# the parsed values, so a running service only picks up a new database
+# endpoint or credentials after a restart.
+#
+# Constraints honoured:
+#   G7 — enablement happens in tasks (first contact); this handler only
+#         restarts an already-managed unit.
+#
+# Idempotency: handlers run only when notified (i.e. only when the config
+# template actually changed), so a no-change re-run of 02_application.yml
+# triggers nothing.
+
+- name: Restart corp-app
+  ansible.builtin.systemd:
+    name: "{{ app_service_name }}"
+    state: restarted
+    daemon_reload: true
