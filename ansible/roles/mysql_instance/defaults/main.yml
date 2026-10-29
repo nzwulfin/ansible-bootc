@@ -1,0 +1,33 @@
+---
+# mysql_instance role defaults
+#
+# These are overridable operational knobs. Credentials and instance-specific
+# values (app_db_name, app_db_user, app_host_address, app_db_password) are
+# intentionally absent here — they are resolved from group_vars/all/ and
+# group_vars/database/ and must never be shadowed by a role default.
+#
+# Constraints honoured:
+#   G4  — app_db_password declared only in all/vault.yml; not here.
+#   G9  — no package installation; all dependencies baked in the database image.
+
+# Path to the MariaDB unix socket.
+# Root access on a fresh install uses the socket — no root password is set.
+# This is the maintenance path for all initial DB provisioning tasks.
+mariadb_socket: /var/lib/mysql/mysql.sock
+
+# How long (seconds) to wait for the unix socket to appear before failing.
+# First-boot MariaDB initialization can take a few seconds; this conservative
+# value accommodates slow VMs without blocking forever.
+mariadb_socket_timeout: 60
+
+# Name of the firewall service to remove during firewall narrowing.
+# The database image bakes this service open for any-host access; the role
+# removes it and adds a source-restricted rich rule in its place.
+mariadb_firewall_service: mysql
+
+# Privilege grant string applied to the application database account.
+# Scoped to the application database only; resolved at task time against
+# app_db_name which comes from group_vars/all/vars.yml.
+# The format follows community.mysql.mysql_user priv syntax:
+#   "<database>.*:<comma-separated privileges>"
+mariadb_user_priv_suffix: ".*:SELECT,INSERT,UPDATE,DELETE"

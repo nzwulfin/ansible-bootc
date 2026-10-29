@@ -1,0 +1,29 @@
+---
+# ansible/playbooks/01_database.yml
+#
+# Provisions the MariaDB instance on the database host group.
+#
+# Standalone usage (run from the ansible/ directory — G11):
+#   ansible-playbook playbooks/01_database.yml
+#
+# AAP usage:
+#   Run as a separate job template with the live machine credential, after
+#   00_bootstrap.yml has completed successfully. The live key (configured as
+#   the default in ansible.cfg) is the correct credential for this phase.
+#   Under AAP, vault variables (app_db_password) are supplied via a custom
+#   credential or survey variable; variable names remain identical so no
+#   playbook changes are required.
+#
+# Constraints honoured:
+#   G9  — no package management tasks; all runtime dependencies are baked
+#         into the database image.
+#   G11 — designed to run from the ansible/ directory; all paths in ansible.cfg
+#         are relative to that directory.
+
+- name: Provision MariaDB instance
+  hosts: database
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: mysql_instance
