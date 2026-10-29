@@ -70,10 +70,14 @@ COPY rootfs/ /
 #    sysusers.d declaration). Boot-time hooks do not re-enforce ownership
 #    or modes on files that already exist — the image content itself must
 #    be correct, or SSH will refuse the authorized_keys file.
+#
+#    rm -f drops the .gitkeep directory placeholder (committed to keep the
+#    .ssh/ tree in git) so it is never baked into the image layer.
 RUN test -f /var/home/ansible/.ssh/authorized_keys || \
     { echo "ERROR: /var/home/ansible/.ssh/authorized_keys is missing from the build context." >&2; \
       echo "Run 'scripts/generate-demo-keys.sh' at the repository root before building this image." >&2; \
       exit 1; } \
+    && rm -f /var/home/ansible/.ssh/.gitkeep \
     && chown -R 5000:5000 /var/home/ansible \
     && chmod 0700 /var/home/ansible /var/home/ansible/.ssh \
     && chmod 0600 /var/home/ansible/.ssh/authorized_keys
