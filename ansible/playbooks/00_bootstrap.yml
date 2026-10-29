@@ -1,0 +1,90 @@
+---
+# ansible/playbooks/00_bootstrap.yml
+#
+# PSK probe -> key rotation -> live key verification: the single discrete
+# onboarding unit (design-spec.md Section 7.7).
+#
+#   Play 1  Probe every host with the bootstrap (PSK) key.
+#   Play 2  On explicit probe success, install the live key and remove
+#           the PSK (bootstrap_key_rotation role).
+#   Play 3  Verify every host is reachable via the live key.
+#
+# The three-play structure is normative: probe and rotation are never
+# combined into a single play, and the credential switch sits at the play
+# boundary — Plays 1-2 override ansible_ssh_private_key_file to the
+# bootstrap key; Play 3 falls back to the ansible.cfg default (live key).
+#
+# Standalone usage (run from the ansible/ directory — G11):
+#   ansible-playbook playbooks/00_bootstrap.yml
+#
+# AAP usage:
+#   Run as its own job template with the bootstrap machine credential.
+#   Play 3 connects with the live key; under AAP (exactly one machine
+#   credential per job) the verification is moved to the start of the
+#   workload job template (live credential) or implied by the workload
+#   job's own connectivity. No playbook change is required.
+#
+# Re-run behaviour (idempotent onboarding): against an already-onboarded
+# host, Play 1 fails to authenticate (the PSK was removed at first
+# contact), Play 2 skips the rotation, and Play 3 confirms the live key
+# still works. authorized_keys is left unchanged.
+#
+# Constraints honoured:
+#   G2  — rotation targets the management account by name (ansible); the
+#         authorized_key module never sees a UID.
+#   G3  — the PSK is removed from the standard authorized_keys path only;
+#         nothing in this playbook can recreate the PSK entry.
+
+- name: Probe hosts with the bootstrap (PSK) key
+  hosts: all
+  gather_facts: false
+  ignore_unreachable: true
+  vars:
+    # PSK override for the onboarding plays. ansible.cfg defaults to the
+    # live key (keys/id_live); the bootstrap phase explicitly uses the
+    # bootstrap private key. The fallback resolves relative to
+    # playbook_dir (the playbooks/ directory), so the path is stable
+    # whether the playbook runs from ansible/ (G11) or is imported by
+    # site.yml; bootstrap_key_path (role default or extra var)
+    # overrides the fallback when provided.
+    ansible_ssh_private_key_file: "{{ bootstrap_key_path | default(playbook_dir ~ '/../keys/id_bootstrap') }}"
+  tasks:
+    - name: Ping over the PSK
+      ansible.builtin.ping:
+      register: bp
+    - name: Record explicit PSK probe success
+      ansible.builtin.set_fact:
+        psk_reachable: true
+      when: bp is not failed and (bp is not unreachable)
+      # psk_reachable persists across plays in this run. Hosts whose
+      # probe failed or that were unreachable never get the fact set.
+
+- name: Rotate PSK to live key on successfully probed hosts
+  hosts: all
+  gather_facts: false
+  ignore_unreachable: true
+  vars:
+    # Same PSK override as Play 1: rotation still authenticates with the
+    # bootstrap key — the live key is installed by the role's first task.
+    ansible_ssh_private_key_file: "{{ bootstrap_key_path | default(playbook_dir ~ '/../keys/id_bootstrap') }}"
+  tasks:
+    - name: Install the live management key and remove the PSK
+      ansible.builtin.include_role:
+        name: bootstrap_key_rotation
+      # Explicit success guard: only a host whose PSK probe explicitly
+      # succeeded in Play 1 is rotated. A probe failure (onboarded host —
+      # the PSK is already gone, so authentication fails) must never
+      # drive rotation; the probe outcome is the unambiguous
+      # discriminator.
+      when: psk_reachable | default(false)
+
+- name: Verify live key access on all hosts
+  hosts: all
+  gather_facts: false
+  # No ansible_ssh_private_key_file override: the ansible.cfg default
+  # (keys/id_live) applies to this play. No ignore_unreachable either —
+  # this play fails loudly if any host is unreachable via the live key,
+  # which is the post-rotation check.
+  tasks:
+    - name: Ping over the live key
+      ansible.builtin.ping:

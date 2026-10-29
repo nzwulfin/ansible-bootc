@@ -1,0 +1,27 @@
+---
+# bootstrap_key_rotation — meta/main.yml
+#
+# Role metadata for dependency declaration and Galaxy publication details.
+
+galaxy_info:
+  role_name: bootstrap_key_rotation
+  author: ansible-bootc
+  description: >
+    Onboards a fresh bootc host: installs the live management key and
+    removes the bootstrap (PSK) key from the ansible account's
+    authorized_keys file. Idempotent — re-running onboarding against an
+    already-onboarded host is a clean no-op.
+  license: Apache-2.0
+  min_ansible_version: "2.14"
+
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+        - "10"
+
+dependencies:
+  # No role-level dependencies. The collection ansible.posix is declared
+  # in ansible/requirements.yml and must be installed before this role
+  # is used.
+  []

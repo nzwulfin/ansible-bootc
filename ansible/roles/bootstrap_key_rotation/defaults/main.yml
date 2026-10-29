@@ -1,0 +1,40 @@
+---
+# bootstrap_key_rotation role defaults
+#
+# Overridable operational knobs with sensible defaults. By Ansible
+# precedence, values defined in inventory group_vars
+# (group_vars/all/vars.yml) or via extra vars override the identically
+# named values here.
+#
+# Paths and the account name only — never credentials: no private key
+# material and no secrets appear in this file. The psk_reachable probe
+# fact is set at play scope by playbooks/00_bootstrap.yml and is
+# intentionally not declared here.
+#
+# Constraints honoured:
+#   G2  — authorized_key_user holds the account name (ansible), never a
+#         UID; it feeds the authorized_key module's user: field.
+#   G11 — key file paths are relative to the ansible/ run directory.
+
+# Account name for the authorized_key module's user: field (G2). The
+# management account is pinned to UID/GID 5000 in the base image, but
+# this module field takes the account name, never a numeric UID.
+authorized_key_user: ansible
+
+# Path to the bootstrap (PSK) private key, relative to the ansible/ run
+# directory (G11). This is the value the play-level
+# ansible_ssh_private_key_file override in playbooks/00_bootstrap.yml
+# falls back to; the key file itself is generated, gitignored material.
+bootstrap_key_path: keys/id_bootstrap
+
+# Path to the bootstrap (PSK) public key file, relative to the ansible/
+# run directory (G11). Read by the rotation tasks via lookup('file', ...)
+# to remove the PSK entry. Overridden by the identically named value in
+# group_vars/all/vars.yml.
+bootstrap_pubkey_path: keys/id_bootstrap.pub
+
+# Path to the live management public key file, relative to the ansible/
+# run directory (G11). Read by the rotation tasks via lookup('file', ...)
+# to install the live key. Overridden by the identically named value in
+# group_vars/all/vars.yml.
+live_pubkey_path: keys/id_live.pub

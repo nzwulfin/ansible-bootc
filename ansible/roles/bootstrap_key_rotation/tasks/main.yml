@@ -1,0 +1,42 @@
+---
+# bootstrap_key_rotation — tasks/main.yml
+#
+# Installs the live management key and removes the bootstrap (PSK) key
+# from the management account's authorized_keys file. Exactly two tasks,
+# both via ansible.posix.authorized_key (never lineinfile/shell/command):
+#   1. Install the live public key (state: present, exclusive: false).
+#   2. Remove the bootstrap public key (state: absent).
+#
+# Idempotency: the module matches keys by content/fingerprint. If the
+# live key is already present and the PSK already absent (an already
+# onboarded host), both tasks are clean no-ops — re-running onboarding
+# against an onboarded host produces no changes.
+#
+# Constraints honoured:
+#   G2  — user: is the account name (default ansible), never a UID. The
+#         account owns its own ~/.ssh/authorized_keys, so no become /
+#         privilege escalation is used or needed.
+#   G3  — the PSK is removed from the standard authorized_keys path only;
+#         no auxiliary state is created here that could resurrect it.
+
+- name: Install the live management public key
+  ansible.posix.authorized_key:
+    user: "{{ authorized_key_user }}"
+    state: present
+    exclusive: false
+    key: "{{ lookup('file', live_pubkey_path) }}"
+  # lookup('file', ...) reads the public key file locally on the control
+  # node (path relative to the ansible/ run directory, G11). The module
+  # matches by fingerprint, so an already-present live key is a no-op.
+  # exclusive: false guarantees no key other than this one is touched.
+
+- name: Remove the bootstrap (PSK) public key
+  ansible.posix.authorized_key:
+    user: "{{ authorized_key_user }}"
+    state: absent
+    key: "{{ lookup('file', bootstrap_pubkey_path) }}"
+  # The module matches by key content/fingerprint, so it removes the
+  # baked PSK entry even though that line carries the
+  # no-pty,no-X11-forwarding,no-agent-forwarding,no-user-rc options
+  # prefix. If the PSK is already absent (onboarded host), this is a
+  # no-op. exclusive is not used: only the bootstrap key is removed.
