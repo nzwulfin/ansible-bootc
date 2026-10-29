@@ -351,7 +351,9 @@ chmod 0600 keys/.vault_pass
 # The vault file is at inventory/group_vars/all/vault.yml
 ansible-vault encrypt inventory/group_vars/all/vault.yml
 
-# Also encrypt the placeholder vault files for the host groups
+# Also encrypt the placeholder vault files for the host groups (optional)
+# These files are empty placeholders for future group-specific secrets.
+# Encrypting them is optional; they contain no sensitive values in this reference pattern.
 ansible-vault encrypt inventory/group_vars/database/vault.yml
 ansible-vault encrypt inventory/group_vars/application/vault.yml
 ```
@@ -498,6 +500,14 @@ This is the bake-time/runtime split made concrete: bake what is safe for the who
 (broad open for any test environment), narrow what is instance-specific (restrict to the
 actual application host IP) at runtime via Ansible.
 
+**Why the base image explicitly opens the `ssh` service:** firewalld's default zone
+(`public`) drops all incoming traffic. An image that installs firewalld but does not
+explicitly open SSH would lock out every management connection — the Ansible account
+could not reach the host at all. The base Containerfile uses
+`firewall-offline-cmd --add-service=ssh` to declare SSH as part of the image's own
+management surface, ensuring that a freshly provisioned host is always reachable for
+first contact.
+
 Note: all firewall configuration in Containerfiles uses `firewall-offline-cmd`, not
 `firewall-cmd`. The firewalld daemon is not running during an image build; the offline
 tool edits zone files on disk directly. The runtime Ansible tasks correctly use the
@@ -529,6 +539,21 @@ Ansible performs the enable and start after writing the config:
 which writes drop-ins into `/etc/systemd/system/corp-app.service.d/`. This layers on
 top of the image-owned unit without modifying it (the unit would be lost on the next
 image update if edited directly).
+
+**Systemd sandboxing directives baked into `corp-app.service`:** The unit carries a
+deliberately small set of hardening directives to reduce the blast radius of the service
+without making the demo difficult to debug:
+
+| Directive | Effect |
+|-----------|--------|
+| `NoNewPrivileges=yes` | Prevents the process (and any child) from gaining elevated privileges via `setuid` binaries or capabilities |
+| `ProtectSystem=strict` | Mounts the entire filesystem read-only except for `/dev`, `/proc`, and `/sys`; the service cannot modify system files |
+| `ProtectHome=yes` | Makes `/home`, `/root`, and `/run/user` invisible and inaccessible to the service |
+| `PrivateTmp=yes` | Gives the service its own isolated `/tmp` and `/var/tmp` namespaces |
+
+These are overridable via `systemctl edit corp-app` drop-ins. For example, a production
+workload that requires write access to a specific path would add a `ReadWritePaths=`
+directive in a drop-in rather than loosening `ProtectSystem`.
 
 **Runs as root:** The service unit does not set `User=` or `Group=`, so it runs as
 root. This is intentional for the demo: the config file `/etc/corp-app/config.ini` is
@@ -595,12 +620,48 @@ The onboarding state survives cleanly:
 | `mariadb-server` | database | Database engine |
 | `mariadb` | database | Client CLI for local administrative access (root via unix socket) |
 | `python3-PyMySQL` | database | Required by `community.mysql` Ansible modules AND any local DB client work |
+| `python3` | application | App runtime; `corp-app.py` is a Python service |
 | `python3-PyMySQL` | application | The app probes MariaDB at runtime; runtime dependency, baked per G9 |
 | `curl` | application | Operator inspection of the loopback health endpoint (`curl http://127.0.0.1:8080/health`); G9 forbids runtime installs |
 
 **No runtime package management (G9).** Ansible never installs or updates packages.
 Every runtime dependency is baked into the appropriate image. This is an invariant:
 a `dnf install` in an Ansible task is a design violation, not a shortcut.
+
+### Database host discovery: static variable design decision
+
+The `db_host` variable in `ansible/inventory/group_vars/application/vars.yml` is a
+static string set by the operator at inventory-configuration time (Step 4). This is a
+deliberate simplification for a reference pattern: the operator knows both VM addresses
+when they populate the inventory, and a static variable is the most transparent and
+debuggable mechanism.
+
+Real-world options for making this dynamic:
+
+| Option | When to use |
+|--------|-------------|
+| **Fact caching** | After a database play runs, the `ansible_default_ipv4.address` fact can be cached and referenced by the application play in the same run or a later run. Requires a fact cache backend (`jsonfile`, `redis`, etc.) in `ansible.cfg`. |
+| **Dynamic inventory** | A dynamic inventory script or plugin (e.g., querying libvirt, a CMDB, or a cloud API) returns host addresses at runtime. The `hostvars['db01']['ansible_host']` reference then works without a static variable. |
+| **Discovery task** | A dedicated pre-task or role queries the environment (DNS, a service registry, or the database group's `ansible_host`) and sets a fact used by later roles. Explicit and auditable. |
+
+For this pattern, the static variable is correct: it matches the documented inventory
+update step (Step 4) and avoids introducing a caching or discovery dependency that would
+obscure the core bake-time/runtime design.
+
+### Static IP inventory assumption
+
+The reference inventory (`ansible/inventory/hosts.yml`) uses static IP addresses for
+`db01` and `app01`. This is a deliberate choice for the reference pattern:
+
+- Static IPs match the libvirt VM provisioning context (Step 3), where the operator
+  assigns and knows both addresses.
+- Static IPs make the inventory fully self-contained and auditable — no DNS dependency,
+  no dynamic resolution, no external lookup at play time.
+- The `app_host_address` and `db_host` variables that must match the inventory IPs are
+  documented explicitly in Step 4 to prevent silent divergence.
+
+In production, replace static addresses with DNS names or use a dynamic inventory
+plugin. The playbooks and roles require no changes — only the inventory source changes.
 
 ### Security non-additions: deliberate decisions
 
@@ -640,21 +701,23 @@ Split the three playbooks across two AAP job templates:
 | **Bootstrap** | `playbooks/00_bootstrap.yml` | Bootstrap credential (`ansible/keys/id_bootstrap`) |
 | **Workload** | `playbooks/01_database.yml` + `playbooks/02_application.yml` | Live credential (`ansible/keys/id_live`) |
 
-**Bootstrap job:** Uses the bootstrap private key. Plays 1 and 2 probe and rotate;
-Play 3 connects with the live key. Under AAP, the bootstrap credential is the only
-machine credential in this job, so Play 3's live-key verify is implicitly covered by
-the workload job's first connection — or you can treat the bootstrap job's Play 3 as
-a diagnostic that may fail under AAP's single-credential constraint, and rely on the
-workload job to prove live-key connectivity.
+**Bootstrap job:** Uses the bootstrap private key. Plays 1 and 2 probe and rotate the
+PSK. Play 3 (live-key verify) uses the live key — but under AAP's single-credential
+constraint only the bootstrap key is available in this job. For that reason, **Play 3's
+live-key verification is handled by the workload job's first connection** rather than
+inside the bootstrap job. The bootstrap job's responsibility ends when the PSK is
+successfully rotated out.
 
 **Workload job:** Uses the live private key. Runs `01_database.yml` then
-`02_application.yml`. No PSK is referenced in these playbooks. The live credential
-is sufficient.
+`02_application.yml`. No PSK is referenced in these playbooks. The workload job's first
+connection implicitly proves live-key connectivity. The live credential is sufficient for
+all workload automation.
 
-Alternatively, run the full `site.yml` as a single job with the **bootstrap credential**,
-which covers all three plays (since the bootstrap plays override their own key in `vars:`,
-Play 3 falls back to `ansible.cfg`'s `private_key_file`, which must match the job's
-credential in that case). The two-job split is the cleaner pattern for production.
+> **The two-job split is mandatory under AAP.** Do not attempt to run `site.yml` as a
+> single AAP job with the bootstrap credential. Once Play 2 rotates out the PSK, all
+> subsequent SSH connections (including Play 3 and the workload plays) require the live
+> key — which the bootstrap credential does not carry. The single-job approach fails
+> after key rotation.
 
 ### Vault files → AAP Custom Credentials or Survey variables
 
