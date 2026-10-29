@@ -97,3 +97,69 @@
     success_msg: >-
       corp-app is healthy: http://127.0.0.1:{{ app_port }}/health
       reports database connected.
+
+- name: Read service root endpoint (GET /)
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_port }}/"
+    method: GET
+    status_code: 200
+    return_content: true
+  register: app_root
+  # Retrieves the records array to verify the seed row inserted by
+  # mysql_instance on the database host is visible over the network.
+  # A 503 here (database error) after a clean /health probe would
+  # indicate a race condition or intermittent connectivity issue.
+
+- name: Assert seed record is visible in GET / response
+  ansible.builtin.assert:
+    that:
+      - app_root.status == 200
+      - app_root.json.records | selectattr('message', 'equalto', app_seed_message) | list | length > 0
+    fail_msg: >-
+      GET / did not contain the expected seed record
+      (message='{{ app_seed_message }}') in the records array.
+      This means either the mysql_instance role did not insert the seed row
+      on the database host, or the application cannot read it over the network.
+      records={{ app_root.json.records | default([]) | to_json }}.
+    success_msg: >-
+      Seed record '{{ app_seed_message }}' is present in GET / response.
+      Full round-trip proven: mysql_instance seeded the database host;
+      corp-app on the application host reads it over the network.
+  # Inspects the structured JSON records array rather than performing a
+  # brittle substring match on raw content (design-spec.md §8.3 task 5).
+
+- name: Submit POST /record write-verification
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_port }}/record"
+    method: POST
+    body_format: json
+    body:
+      message: "{{ app_verify_message }}"
+    status_code: 201
+    return_content: true
+  register: app_write
+  # Non-idempotent by design (design-spec.md §8.3 idempotency note):
+  # each role run inserts one additional verification row. The extra rows
+  # are harmless demo data. Do NOT attempt to delete or suppress them —
+  # that would mutate state the design accepts as a probe artefact.
+
+- name: Assert write-verification response echoes inserted record
+  ansible.builtin.assert:
+    that:
+      - app_write.status == 201
+      - app_write.json.message == app_verify_message
+      - app_write.json.id is defined
+      - app_write.json.created_at is defined
+    fail_msg: >-
+      POST /record write-verification failed.
+      Expected status 201 and message='{{ app_verify_message }}';
+      got status={{ app_write.status | default('unknown') }},
+      body={{ app_write.content | default('unavailable') }}.
+      Check that the application database account has INSERT permission
+      on the service_records table.
+    success_msg: >-
+      Write verification passed: POST /record returned 201 with
+      id={{ app_write.json.id | default('?') }},
+      message='{{ app_write.json.message | default('?') }}',
+      created_at={{ app_write.json.created_at | default('?') }}.
+      Application account has confirmed network write access to the database.

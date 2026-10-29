@@ -31,3 +31,18 @@ mariadb_firewall_service: mysql
 # The format follows community.mysql.mysql_user priv syntax:
 #   "<database>.*:<comma-separated privileges>"
 mariadb_user_priv_suffix: ".*:SELECT,INSERT,UPDATE,DELETE"
+
+# Name of the table that holds application records.
+# This value is fixed by the interface contract (design-spec.md §9, §6.3):
+# the application hardcodes the table name "service_records" in its SQL.
+# Changing this default without also updating corp-app.py breaks the interface
+# silently at runtime — treat this as documentation of the agreed value, not
+# a free operational knob.
+mariadb_table_name: service_records
+
+# Message value inserted as the bootstrap seed row.
+# The app_instance role (design-spec.md §8.3) asserts that this value is
+# visible in GET / responses, proving the Ansible-as-entrypoint pattern
+# delivered schema and seed data before the application started serving.
+# Must agree with app_instance's app_seed_message default (design-spec.md §9).
+mariadb_seed_message: ansible-bootstrap
