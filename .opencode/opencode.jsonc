@@ -13,11 +13,11 @@
     // Hard deny all shell commands by default (no package installation, no arbitrary execution)
     { "action": "shell", "resource": "*", "effect": "deny" },
 
-    // Allow Git commands by default...
+    // Allow Git and GitHub CLI commands by default...
     { "action": "shell", "resource": "git *", "effect": "allow" },
+    { "action": "shell", "resource": "gh *", "effect": "allow" },
 
-    // ...EXCEPT destructive or remote operations:
-    { "action": "shell", "resource": "git push *", "effect": "deny" },
+    // ...EXCEPT destructive operations:
     { "action": "shell", "resource": "git clean *", "effect": "deny" },
     { "action": "shell", "resource": "git reset *", "effect": "deny" },
     { "action": "shell", "resource": "git rebase *", "effect": "deny" },
