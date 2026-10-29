@@ -63,10 +63,60 @@ drop-in, the MariaDB baseline `cnf`, and the application runtime config land her
 Ansible writes instance-specific values (credentials, database host pointer) into
 `/etc`; a `bootc upgrade` merges them so local changes survive.
 
-**bootc's `/var` is first-contact state.** The pre-shared bootstrap key lives here
-because bootc applies `/var` only at initial install — it is never re-applied by
-`bootc upgrade`. That is exactly the "present at first contact, never resurrected"
-lifecycle the bootstrap key requires. See [§3 PSK Lifecycle](#3-psk-lifecycle).
+**bootc's `/var` is persistent machine state and first-contact state.** In bootc systems,
+`/home` is a symlink to `/var/home` so user data resides on the persistent `/var` volume.
+This is why all management account paths reference `/var/home/ansible/`.
+
+Two critical operational guarantees rest on bootc's install-only `/var` semantics:
+1. **The pre-shared bootstrap key (PSK) cannot resurrect**: bootc applies `/var` content from
+   the image *only* at initial install — it is never re-applied or merged by `bootc upgrade`
+   or `bootc rollback`. Once Ansible deletes the PSK, nothing can restore it.
+2. **Database data survives updates and rollbacks**: `/var/lib/mysql` is preserved untouched
+   across `bootc upgrade` and rollback by the exact same mechanism. The image never overwrites
+   existing `/var` data. The guarantee that prevents the PSK from resurrecting is the exact
+   same guarantee that keeps your database data safe.
+
+### Bridging traditional automation to image mode
+
+For sysadmins migrating existing monolithic Ansible playbooks, configuration tasks split
+across the new boundary as follows:
+
+| Traditional Ansible Task | Where it moves in this pattern | Why |
+|---|---|---|
+| `dnf`/`package` installation tasks | Containerfile `RUN dnf install` | Packages live in immutable `/usr`; no package manager runs at runtime |
+| Base OS hardening (SSH, sudoers) | Base image `rootfs/etc/` | Applied identically across all fleet hosts at bake time |
+| Management user creation | Base image `usr/lib/sysusers.d/` | Idempotent, drift-free boot-time account creation with pinned UID/GID |
+| Service units & resource limits | Workload image `usr/lib/` | Image-owned standard; updates atomically with image upgrades |
+| Service baseline config (`my.cnf.d`) | Workload image `rootfs/etc/` | Seeded at install time; merges cleanly via bootc 3-way merge |
+| Firewall port baseline | Workload image (`firewall-offline-cmd`) | Offline baseline opened during container build |
+| Runtime firewall narrowing (rich rules) | Ansible (`ansible.posix.firewalld`) | Instance-specific; restricts DB access to application VM IP |
+| Application config & credentials | Ansible (templates & vault in `/etc`) | Instance-specific state that differs across environments |
+| Service start and enablement | Ansible (`ansible.builtin.systemd`) | Deferred until instance configuration is in place |
+
+### Visualizing the architecture
+
+```mermaid
+graph TD
+    subgraph BuildTime ["Bake-Time: bootc Container Images (Platform & Workload Standards)"]
+        Base["Base Image (CentOS Stream 10)<br/>• Admin tools & firewalld<br/>• sysusers.d account (5000:5000)<br/>• Key-only SSH drop-in<br/>• Baked PSK in /var/home/.../authorized_keys"]
+        DB["Database Image<br/>• MariaDB + python3-PyMySQL<br/>• UTF-8 my.cnf.d baseline<br/>• /usr/lib resource limits drop-in<br/>• /usr/lib tuned profile (corp-database)<br/>• Offline MySQL port open"]
+        App["Application Image<br/>• python3-PyMySQL + curl<br/>• corp-app.py (loopback only)<br/>• /usr/lib corp-app.service (baked, NOT enabled)"]
+
+        Base --> DB
+        Base --> App
+    end
+
+    subgraph Runtime ["Runtime: Ansible Automation (Instance-Specific Configuration)"]
+        P0["00_bootstrap.yml (PSK Credential)<br/>• Probe with bootstrap PSK<br/>• Install live key, remove PSK<br/>• Verify live key connectivity"]
+        P1["01_database.yml (Live Credential)<br/>• Wait for MariaDB socket<br/>• Create app database & user (scoped to app IP)<br/>• Narrow firewall port to app IP"]
+        P2["02_application.yml (Live Credential)<br/>• Template /etc/corp-app/config.ini (0640)<br/>• Start & enable corp-app.service<br/>• Poll loopback /health endpoint"]
+
+        P0 --> P1
+        P0 --> P2
+    end
+
+    BuildTime -.->|Deploy via bootc / qcow2| Runtime
+```
 
 ---
 
@@ -176,6 +226,41 @@ provisioned, never-onboarded host. Its lifecycle is invariant:
 | Reboot | Unchanged | `tmpfiles.d` has only `d` entries for `.ssh/`; existing files are not recreated |
 | Re-run `00_bootstrap.yml` | Unchanged | Play 1 probe fails (PSK gone); Play 2 skipped; Play 3 verifies live key still works |
 | Stale host (old image, new PSK generated) | Cannot be onboarded | Decommission and reprovision; never rescued |
+
+```mermaid
+stateDiagram-v2
+    direction TB
+    [*] --> BuildTime: scripts/generate-demo-keys.sh + podman build
+    state BuildTime {
+        Baked: PSK baked in /var/home/ansible/.ssh/authorized_keys
+    }
+    BuildTime --> FreshInstall: bootc install-to-disk / deploy VM
+    state FreshInstall {
+        FirstBoot: /var populated from image (applied at initial install only)
+    }
+    FreshInstall --> FirstContact: Ansible 00_bootstrap.yml (Play 1 probe succeeds)
+    state FirstContact {
+        Rotated: Play 2 adds id_ansible_live and deletes PSK
+    }
+    FirstContact --> SteadyState: Play 3 verifies live key works
+    state SteadyState {
+        LiveOnly: authorized_keys contains ONLY id_ansible_live
+        LiveOnly --> Upgraded: bootc upgrade (/var untouched)
+        Upgraded --> LiveOnly
+        LiveOnly --> RolledBack: bootc rollback (/var untouched)
+        RolledBack --> LiveOnly
+        LiveOnly --> Rebooted: reboot (tmpfiles.d has only d entries)
+        Rebooted --> LiveOnly
+    }
+```
+
+```text
+  Phase:           Image Build        First Boot          First Contact (Ansible)    Day-2 (Upgrades / Rollback)
+                  ─────────────      ────────────        ────────────────────────    ───────────────────────────
+  Host /var:      [PSK baked]   ──►  [PSK unpacked]  ──► [PSK removed, Live added] ──► [Live key retained; /var untouched]
+                                                                  ▲
+  Ansible Node:   [Keys generated]   [Wait for IP]   ──► [00_bootstrap.yml runs]   ──► [Subsequent plays use Live key]
+```
 
 ### No resurrection path
 
@@ -329,7 +414,7 @@ and the config template silently.
 
 ### Step 5 — Install Ansible collections
 
-All subsequent Ansible commands must be run from the `ansible/` directory (G11). Paths
+All subsequent Ansible commands must be run from the `ansible/` directory. Paths
 in `ansible.cfg` are relative to that directory; running from the repo root causes
 path-resolution failures.
 
@@ -359,7 +444,7 @@ ansible-vault encrypt inventory/group_vars/application/vault.yml
 ```
 
 The `all/vault.yml` file contains `app_db_password`. This is the only place this
-variable may appear (design constraint G4): it must be visible to both the
+variable may appear (the shared secret rule): it must be visible to both the
 `mysql_instance` role (database group) and the `app_instance` role (application group),
 which requires placement in `all/` rather than any group-specific vault.
 
@@ -514,7 +599,7 @@ tool edits zone files on disk directly. The runtime Ansible tasks correctly use 
 `ansible.posix.firewalld` module with `immediate: true` (which requires a running
 daemon, available at runtime).
 
-### Application service: baked but NOT enabled (G7)
+### Application service: baked but NOT enabled
 
 `corp-app.service` is baked into the application image under
 `/usr/lib/systemd/system/corp-app.service` but the Containerfile **never runs
@@ -534,6 +619,14 @@ Ansible performs the enable and start after writing the config:
     enabled: true
     daemon_reload: true
 ```
+
+**How `systemctl enable` works during image builds:** Administrators may wonder how
+`systemctl enable sshd` (in the base image) or `systemctl enable mariadb` (in the database
+image) functions inside a Containerfile when systemd is not running as PID 1. In systemd,
+enabling a unit is simply a filesystem operation: it creates symlinks under
+`/etc/systemd/system/*.wants/`. Because bootc seeds `/etc` content from the container image
+during initial deployment, those enablement symlinks are created at build time and take effect
+on first boot without requiring a running systemd daemon during the build.
 
 **Override mechanism:** Operators tune service behaviour via `systemctl edit corp-app`,
 which writes drop-ins into `/etc/systemd/system/corp-app.service.d/`. This layers on
@@ -565,7 +658,7 @@ accordingly.
 
 The `mariadb.service` resource-limit drop-in lives at
 `usr/lib/systemd/system/mariadb.service.d/10-corporate.conf` in the database image's
-`rootfs/`. This is the image-owned location (G5). The corporate standard —
+`rootfs/`. This is the image-owned location. The corporate standard —
 `LimitNOFILE=65536`, `LimitNPROC=4096` — updates unconditionally with the image.
 
 **Why not `/etc/systemd/system/`?** The `/etc/` location is machine-local config
@@ -581,7 +674,7 @@ The unit drop-in is the correct and only reliable mechanism for enforcing resour
 limits on a systemd-managed service.
 
 The same reasoning applies to the `corp-database` tuned profile: it lives under
-`usr/lib/tuned/corp-database/tuned.conf` (image-owned, G6), inherits from
+`usr/lib/tuned/corp-database/tuned.conf` (image-owned), inherits from
 `throughput-performance` (the platform baseline), and adds database-specific settings
 (THP disabled, swappiness minimised, dirty-ratio raised, read-ahead configured). The
 Containerfile activates it by writing `corp-database` to `/etc/tuned/active_profile`
@@ -621,10 +714,10 @@ The onboarding state survives cleanly:
 | `mariadb` | database | Client CLI for local administrative access (root via unix socket) |
 | `python3-PyMySQL` | database | Required by `community.mysql` Ansible modules AND any local DB client work |
 | `python3` | application | App runtime; `corp-app.py` is a Python service |
-| `python3-PyMySQL` | application | The app probes MariaDB at runtime; runtime dependency, baked per G9 |
-| `curl` | application | Operator inspection of the loopback health endpoint (`curl http://127.0.0.1:8080/health`); G9 forbids runtime installs |
+| `python3-PyMySQL` | application | The app probes MariaDB at runtime; runtime dependency, must be baked at build time |
+| `curl` | application | Operator inspection of the loopback health endpoint (`curl http://127.0.0.1:8080/health`); runtime package installation is prohibited |
 
-**No runtime package management (G9).** Ansible never installs or updates packages.
+**No runtime package management.** Ansible never installs or updates packages.
 Every runtime dependency is baked into the appropriate image. This is an invariant:
 a `dnf install` in an Ansible task is a design violation, not a shortcut.
 
