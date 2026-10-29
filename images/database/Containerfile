@@ -1,0 +1,48 @@
+# Database workload image — derives from the corporate base image.
+# Adds MariaDB server, the Python DB client library, the corporate
+# MariaDB baseline config, resource-limit drop-in, and a database-
+# oriented tuned profile.  Enables mariadb on first boot so the
+# service self-initialises with the corporate config already in place.
+#
+# G1: firewall-offline-cmd only (daemon not running at build time).
+# G5: mariadb.service drop-in under usr/lib — image-owned, always wins.
+# G6: tuned profile under usr/lib/tuned/corp-database — image-owned.
+# G9: all runtime deps baked here; Ansible installs nothing.
+
+FROM corp-base:latest
+
+# ── Package layer ──────────────────────────────────────────────────────────────
+# mariadb-server  : the database engine
+# python3-PyMySQL : required by community.mysql Ansible modules *and* by any
+#                   local DB client work; Ansible must not install this at
+#                   runtime (G9)
+RUN dnf install -y \
+        mariadb-server \
+        mariadb \
+        python3-PyMySQL \
+    && dnf clean all
+
+# ── Config, drop-in, and tuned profile ────────────────────────────────────────
+# Copies in one step:
+#   etc/my.cnf.d/00-corporate.cnf                     ← MariaDB baseline
+#   usr/lib/systemd/system/mariadb.service.d/          ← resource-limit drop-in (G5)
+#   usr/lib/tuned/corp-database/tuned.conf             ← DB tuned profile (G6)
+COPY rootfs/ /
+
+# ── Enable mariadb ────────────────────────────────────────────────────────────
+# The service must self-initialise on first boot with the corporate config
+# already in place.  tuned and firewalld are inherited from the base image.
+RUN systemctl enable mariadb
+
+# ── Firewall: open MySQL service at bake time (G1) ────────────────────────────
+# Broad open is the bake-time posture — any test environment can reach the DB.
+# The mysql_instance Ansible role narrows this to the application host IP at
+# runtime (replaces this service rule with a source-restricted rich rule).
+RUN firewall-offline-cmd --add-service=mysql
+
+# ── Tuned profile activation ──────────────────────────────────────────────────
+# Write the active profile selection into /etc/tuned/ (machine-local config).
+# The directory name corp-database must exactly match what is written here (G6).
+# Direct file writes are used because tuned-adm requires a running daemon.
+RUN echo 'corp-database' > /etc/tuned/active_profile \
+    && echo 'manual' > /etc/tuned/profile_mode

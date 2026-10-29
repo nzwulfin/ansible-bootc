@@ -1,0 +1,43 @@
+# Corporate MariaDB baseline configuration.
+#
+# Processed first by MariaDB's !includedir /etc/my.cnf.d/ directive because
+# of the 00- prefix.  Establishes corporate defaults before any instance-
+# specific overrides that may be layered on top by the DBA.
+#
+# G9: bake-time config only — no runtime package management or tooling required.
+
+[mysqld]
+
+# ── Character set ─────────────────────────────────────────────────────────────
+# Corporate standard for all new databases: full Unicode coverage with correct
+# multi-byte collation.  utf8mb4 is the proper four-byte encoding (MariaDB's
+# older "utf8" alias only covers the three-byte BMP subset).
+character-set-server    = utf8mb4
+collation-server        = utf8mb4_unicode_ci
+
+# ── Network binding ───────────────────────────────────────────────────────────
+# Bind to all interfaces so the application host can connect over the network.
+# A localhost-only binding would silently break cross-host connectivity.
+# Actual access is controlled by the firewall (bake-time broad open, narrowed
+# at runtime by the mysql_instance Ansible role — G1).
+bind-address            = 0.0.0.0
+
+# ── InnoDB sizing ─────────────────────────────────────────────────────────────
+# Conservative demo values; size for production based on available RAM.
+# Rule of thumb: innodb_buffer_pool_size = 70-80 % of dedicated DB RAM.
+innodb_buffer_pool_size = 256M
+innodb_log_file_size    = 64M
+
+# ── Slow query logging ────────────────────────────────────────────────────────
+# Log queries that exceed the threshold so DBAs can identify and optimise them.
+# Log directory /var/log/mariadb/ is created by the mariadb package.
+slow_query_log          = 1
+slow_query_log_file     = /var/log/mariadb/slow.log
+long_query_time         = 2
+
+[client]
+
+# ── Client character set ──────────────────────────────────────────────────────
+# Clients use the same encoding as the server; avoids silent charset conversion
+# issues when applications connect without specifying a charset explicitly.
+default-character-set   = utf8mb4
