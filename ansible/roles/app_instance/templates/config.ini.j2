@@ -1,0 +1,28 @@
+# /etc/corp-app/config.ini — runtime configuration for corp-app.
+#
+# Ansible-managed: rendered by the app_instance role
+# (ansible/roles/app_instance/templates/config.ini.j2) on every run of
+# playbooks/02_application.yml. Do not edit by hand — local changes are
+# overwritten on the next run.
+#
+# G12: this path is fixed. It must remain identical to CONFIG_PATH in
+# /usr/local/bin/corp-app.py and to the path the corp-app.service process
+# reads. Relocating the file silently breaks the application.
+#
+# The application reads exactly these keys (G12 read-set):
+#   [database]  host, port, name, user, password
+#   [server]    port
+# There is deliberately no bind_address key: corp-app hardcodes loopback
+# binding (127.0.0.1) and never reads a bind_address — writing one would
+# be a dead key that falsely implies the binding is configurable.
+
+[database]
+host = {{ db_host }}
+port = {{ db_port | default(3306) }}
+name = {{ app_db_name }}
+user = {{ app_db_user }}
+password = {{ app_db_password }}
+
+[server]
+port = {{ app_port }}
+
