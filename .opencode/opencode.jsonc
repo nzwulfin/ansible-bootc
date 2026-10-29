@@ -13,18 +13,15 @@
     // Hard deny all shell commands by default (no package installation, no arbitrary execution)
     { "action": "shell", "resource": "*", "effect": "deny" },
 
-    // Allowlisted, non-destructive Git inspection and local commit staging
-    { "action": "shell", "resource": "git status*", "effect": "allow" },
-    { "action": "shell", "resource": "git diff*", "effect": "allow" },
-    { "action": "shell", "resource": "git log*", "effect": "allow" },
-    { "action": "shell", "resource": "git add *", "effect": "allow" },
-    { "action": "shell", "resource": "git commit *", "effect": "allow" },
+    // Allow Git commands by default...
+    { "action": "shell", "resource": "git *", "effect": "allow" },
 
-    // Safe branch management (git switch only, git checkout remains denied)
-    { "action": "shell", "resource": "git branch*", "effect": "allow" },
-    { "action": "shell", "resource": "git switch *", "effect": "allow" },
-
-    // Worktree helper (git wt <branch>, git wt rm <branch>)
-    { "action": "shell", "resource": "git wt *", "effect": "allow" }
+    // ...EXCEPT destructive or remote operations:
+    { "action": "shell", "resource": "git push *", "effect": "deny" },
+    { "action": "shell", "resource": "git clean *", "effect": "deny" },
+    { "action": "shell", "resource": "git reset *", "effect": "deny" },
+    { "action": "shell", "resource": "git rebase *", "effect": "deny" },
+    { "action": "shell", "resource": "git checkout *", "effect": "deny" },
+    { "action": "shell", "resource": "git config *", "effect": "deny" }
   ]
 }
