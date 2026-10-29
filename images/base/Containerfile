@@ -1,0 +1,103 @@
+# Base bootc image — platform/security layer.
+#
+# Provides the management account (ansible, UID/GID 5000 pinned per G2),
+# the first-contact provisioning key (PSK) under /var, the key-only SSH
+# baseline, firewall state, and the platform toolset. All workload images
+# (database, application) derive from this image.
+#
+# BUILD ORDER REQUIREMENT: run scripts/generate-demo-keys.sh at the
+# repository root BEFORE building this image. The script writes the
+# bootstrap PSK into the build context at
+# rootfs/var/home/ansible/.ssh/authorized_keys; a build without it fails,
+# and generating different keys after a build leaves the control node
+# unable to reach images built with the old key.
+#
+# bootc lint note: `bootc container lint` warns about content under /var.
+# That warning is expected and intentional, not a defect — the PSK lives
+# under /var because bootc applies /var at initial install only and never
+# merges or re-applies it on upgrade, which is exactly the "present at
+# first contact, never resurrected" lifecycle the PSK requires (G3).
+
+FROM quay.io/centos-bootc/centos-bootc:stream10
+
+# 1. Platform toolset, installed and cleaned in a single layer.
+#    (G9: everything an image needs is baked at build time; Ansible never
+#    runs a package manager at runtime.)
+#
+#    sudo            passwordless privilege escalation for Ansible `become`
+#    openssh-server  SSH daemon; management is key-only, enforced by the
+#                    /etc/ssh/sshd_config.d/ drop-in (G8)
+#    python3         runtime for Ansible's Python modules and for the
+#                    application layer's database client
+#    rsync           efficient file-transfer backend for Ansible
+#    iproute         operator network tooling (ip, ss)
+#    firewalld       firewall daemon; zone state is configured OFFLINE
+#                    below, because no daemon runs at build time (G1)
+#    tuned           platform tuning daemon; the base activates a generic
+#                    profile, a workload layer may replace the active one
+#    tmux            light admin tool: persistent sessions for debugging
+#    vim-minimal     light admin tool: in-place editing of host config
+#    bind-utils      light admin tool: DNS lookups (dig, host)
+RUN dnf install -y --nodocs \
+        sudo \
+        openssh-server \
+        python3 \
+        rsync \
+        iproute \
+        firewalld \
+        tuned \
+        tmux \
+        vim-minimal \
+        bind-utils \
+    && dnf clean all
+
+# 2. Install all baked configuration in one step. rootfs/ mirrors the
+#    target filesystem, so the build context is the documentation of what
+#    lands where on a deployed system:
+#
+#      etc/sudoers.d/99-ansible                             -> NOPASSWD sudo rule
+#      etc/ssh/sshd_config.d/50-corporate-hardening.conf   -> SSH baseline (G8)
+#      usr/lib/sysusers.d/ansible.conf                      -> account, UID/GID 5000 (G2)
+#      usr/lib/tmpfiles.d/ansible-home.conf                 -> home tree, `d` entries only (G3)
+#      var/home/ansible/.ssh/authorized_keys                -> PSK, first contact only (G3)
+#
+#    Content under /var triggers the expected bootc lint warning; that is
+#    intentional (see header comment).
+COPY rootfs/ /
+
+# 3. PSK tree: final ownership and modes. The ansible user does not exist
+#    at build time, so ownership is numeric (G2: 5000:5000, matching the
+#    sysusers.d declaration). Boot-time hooks do not re-enforce ownership
+#    or modes on files that already exist — the image content itself must
+#    be correct, or SSH will refuse the authorized_keys file.
+#
+#    rm -f drops the .gitkeep directory placeholder (committed to keep the
+#    .ssh/ tree in git) so it is never baked into the image layer.
+RUN test -f /var/home/ansible/.ssh/authorized_keys || \
+    { echo "ERROR: /var/home/ansible/.ssh/authorized_keys is missing from the build context." >&2; \
+      echo "Run 'scripts/generate-demo-keys.sh' at the repository root before building this image." >&2; \
+      exit 1; } \
+    && rm -f /var/home/ansible/.ssh/.gitkeep \
+    && chown -R 5000:5000 /var/home/ansible \
+    && chmod 0700 /var/home/ansible /var/home/ansible/.ssh \
+    && chmod 0600 /var/home/ansible/.ssh/authorized_keys
+
+# 4. sudo ignores files in /etc/sudoers.d/ that are not root-owned and
+#    mode 0440; COPY does not guarantee that state.
+RUN chown root:root /etc/sudoers.d/99-ansible \
+    && chmod 0440 /etc/sudoers.d/99-ansible
+
+# 5. Services that must be running from first boot.
+RUN systemctl enable sshd firewalld tuned
+
+# 6. Open the SSH service in the default zone. The runtime firewall tool
+#    requires a running daemon, which does not exist at build time;
+#    firewall-offline-cmd edits the zone files on disk instead (G1, no
+#    exceptions in any image).
+RUN firewall-offline-cmd --add-service=ssh
+
+# 7. Platform tuned profile. Direct file writes: tuned-adm requires a
+#    running daemon, which does not exist at build time. A workload layer
+#    may replace the active profile with its own.
+RUN printf 'throughput-performance\n' > /etc/tuned/active_profile \
+    && printf 'manual\n' > /etc/tuned/profile_mode
