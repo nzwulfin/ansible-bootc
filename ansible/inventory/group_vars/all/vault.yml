@@ -1,0 +1,23 @@
+---
+# group_vars/all/vault.yml — Vault-encrypted shared credentials.
+#
+# THIS FILE MUST BE ENCRYPTED with ansible-vault before use:
+#   cd ansible/
+#   ansible-vault encrypt inventory/group_vars/all/vault.yml
+#
+# To edit an already-encrypted file:
+#   ansible-vault edit inventory/group_vars/all/vault.yml
+#
+# Global constraint G4: app_db_password is declared ONLY in this file.
+# It must not appear in any group-specific vault file, any role default,
+# or any plaintext file. Both the mysql_instance role (which creates the
+# MariaDB account) and the app_instance role (which writes config.ini)
+# resolve this variable from this single location.
+#
+# Under AAP: replace this vault file with an AAP custom credential or
+# survey variable. The variable name (app_db_password) must remain identical
+# so that roles work unchanged.
+
+# The password for the application's MariaDB account.
+# Replace the placeholder value before encrypting this file.
+app_db_password: "REPLACE_ME_WITH_A_STRONG_PASSWORD"
