@@ -30,6 +30,25 @@ This reference pattern is written for an enterprise Linux systems administrator:
 - **Image-Mode Linux (Assumed First Contact)**: You are encountering **bootc** and image-mode Linux for the first time. The repository actively bridges your mental model: teaching the bake-time vs. runtime boundary, `/usr`/`/etc`/`/var` filesystem semantics, and how traditional golden-image concepts map into bootable container images.
 - **Automation Platform (Conceptual)**: You have a working familiarity with Red Hat Ansible Automation Platform (AAP) concepts like Job Templates and Machine Credentials.
 
+#### Familiar by assumption (enterprise baseline — never re-taught)
+
+| Technology | Assumed level | How it shapes this project |
+|---|---|---|
+| **Ansible** | Expert / Fluent | Roles, task idempotency, `group_vars` precedence, vault encryption, handlers, collections. Playbook syntax and handler mechanics are taken as given. |
+| **SSH** | Expert | Key modes (`0600`), `authorized_keys` options tokens (`no-pty`, forwarding controls), fingerprint-based key matching. |
+| **systemd** | Expert | Unit drop-ins, `systemctl edit`, sandboxing directives (`NoNewPrivileges`, `ProtectSystem`), `sysusers.d`, and `tmpfiles.d`. |
+| **firewalld** | Expert | Zones, rich rules, and runtime vs. permanent state. Only the build-time offline tool (`firewall-offline-cmd`) is treated as new. |
+| **PAM & Linux OS** | Working Knowledge | Session flow, limits (`limits.d` vs. systemd service drop-ins), standard RHEL administration. |
+
+#### First contact / low familiarity (the pedagogical frontier)
+
+| Technology | Assumed level | How it shapes this project |
+|---|---|---|
+| **bootc / Image-Mode** | Day-1 Explorer | Actively taught: immutable `/usr`, 3-way merge `/etc`, install-only `/var`, the `/home` → `/var/home` symlink, and image upgrade/rollback semantics. |
+| **Containers as OS Images** | Beginner | Application containers may be familiar, but using a Containerfile to build an entire bootable OS image is treated as novel. The `rootfs/` mirror-tree is used to bridge this. |
+| **ostree Deployment Semantics** | Zero | Atomic updates, staged deployments, and rollback survival are explained and diagrammed. |
+| **Ansible Automation Platform** | Intermediate | Conceptual familiarity with Job Templates and Machine Credentials; credential-isolation constraints under AAP are documented. |
+
 ### The bake-time / runtime boundary
 
 The central design question is: *which system owns each piece of configuration?*
