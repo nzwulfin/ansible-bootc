@@ -31,7 +31,7 @@ AUTHORIZED_KEYS="${SSH_DIR}/authorized_keys"
 # image. Silently overwriting keys would cause an outage that is hard to
 # diagnose. Abort loudly instead.
 # ---------------------------------------------------------------------------
-if [[ -f "${KEYS_DIR}/id_bootstrap" ]]; then
+if [[ -f "${KEYS_DIR}/id_bootstrap" || -f "${KEYS_DIR}/id_live" ]]; then
     echo "ERROR: Keys already exist in ${KEYS_DIR}." >&2
     echo "" >&2
     echo "       Keys already exist. Regeneration would invalidate all images built" >&2
@@ -48,7 +48,8 @@ if [[ -f "${KEYS_DIR}/id_bootstrap" ]]; then
     exit 1
 fi
 
-# Ensure the target SSH directory exists in the base image build context.
+# Ensure the target directories exist.
+mkdir -p "${KEYS_DIR}"
 mkdir -p "${SSH_DIR}"
 
 echo "Generating Ed25519 key pairs in ${KEYS_DIR}/ ..."

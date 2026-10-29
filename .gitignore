@@ -6,11 +6,11 @@
 # Interface: path must exactly match what scripts/generate-demo-keys.sh writes.
 images/base/rootfs/var/home/ansible/.ssh/authorized_keys
 
-# Ansible private keys and vault credentials
+# Ansible private keys and vault credentials.
+# Public keys are also excluded; ansible/keys/.gitignore is the authoritative
+# source for that directory — no negation patterns here to avoid conflicts.
 ansible/keys/id_*
-!ansible/keys/id_*.pub
-ansible/keys/.vault_password
-ansible/keys/*.vault_password
+ansible/keys/.vault_pass
 
 # Ansible retry files
 *.retry
