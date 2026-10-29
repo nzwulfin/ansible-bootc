@@ -1,0 +1,27 @@
+---
+# mysql_instance — meta/main.yml
+#
+# Role metadata for dependency declaration and Galaxy publication details.
+
+galaxy_info:
+  role_name: mysql_instance
+  author: ansible-bootc
+  description: >
+    Provisions a MariaDB instance for runtime use: creates the application
+    database and account, and narrows the firewall rule to the application
+    host. Assumes MariaDB is already installed and enabled via the database
+    bootc image; root access is via the local unix socket (no root password set).
+  license: Apache-2.0
+  min_ansible_version: "2.14"
+
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+        - "10"
+
+dependencies:
+  # No role-level dependencies. The collections community.mysql and
+  # ansible.posix are declared in ansible/requirements.yml and must be
+  # installed before this role is used.
+  []

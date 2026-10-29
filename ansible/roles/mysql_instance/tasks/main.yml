@@ -1,0 +1,72 @@
+---
+# mysql_instance — tasks/main.yml
+#
+# Provisions MariaDB for runtime use:
+#   1. Wait for the unix socket (proves service is up and self-initialized).
+#   2. Create the application database.
+#   3. Create the application account (host-restricted, no root password set).
+#   4. Narrow the firewall: remove broad mysql service, add source-IP rich rule.
+#
+# The play sets become: true; root is required for socket access and firewall
+# management. No become: false override is permitted here.
+#
+# Constraints honoured:
+#   G1  — firewalld module with immediate: true uses the running daemon at
+#          runtime; this is correct here (not a build step).
+#   G4  — app_db_password resolved from all/vault.yml only; not referenced
+#          in defaults/main.yml.
+#   G9  — no package installation tasks; all runtime dependencies (mariadb-server,
+#          python3-PyMySQL) are baked into the database image.
+
+- name: Wait for MariaDB unix socket to be present
+  ansible.builtin.wait_for:
+    path: "{{ mariadb_socket }}"
+    state: present
+    timeout: "{{ mariadb_socket_timeout }}"
+  # This gate guarantees MariaDB has completed first-boot self-initialization
+  # before any community.mysql tasks attempt a connection.
+
+- name: Create application database
+  community.mysql.mysql_db:
+    name: "{{ app_db_name }}"
+    state: present
+    login_unix_socket: "{{ mariadb_socket }}"
+  # login_unix_socket with no login_password means root access via the unix
+  # socket — the correct path on a fresh install with no root password set.
+
+- name: Create application database user
+  community.mysql.mysql_user:
+    name: "{{ app_db_user }}"
+    host: "{{ app_host_address }}"
+    password: "{{ app_db_password }}"
+    priv: "{{ app_db_name }}{{ mariadb_user_priv_suffix }}"
+    state: present
+    login_unix_socket: "{{ mariadb_socket }}"
+  no_log: true
+  # host: app_host_address — the account is valid only for connections that
+  # originate from the application host IP. Using 'localhost' or '%' would
+  # either prevent the network connection or over-grant access.
+  #
+  # app_db_password comes from all/vault.yml (G4); it is never declared in
+  # this role's defaults or in any group-specific vault.
+
+- name: Remove broad mysql firewall service (image-baked, open to all)
+  ansible.posix.firewalld:
+    service: "{{ mariadb_firewall_service }}"
+    state: disabled
+    permanent: true
+    immediate: true
+  # The database image opens the mysql service for all sources at bake time
+  # (convenient for any test environment). This task closes that broad rule
+  # before the source-restricted rich rule is added below.
+
+- name: Allow MySQL only from application host (firewall rich rule)
+  ansible.posix.firewalld:
+    rich_rule: "rule family='ipv4' source address='{{ app_host_address }}/32' service name='mysql' accept"
+    state: enabled
+    permanent: true
+    immediate: true
+  # Replaces the broad service rule with a source-restricted rule that
+  # permits MySQL traffic only from the application host's IP address.
+  # This is the bake/runtime split made concrete: broad open baked in,
+  # narrow rule applied at instance provisioning time.
