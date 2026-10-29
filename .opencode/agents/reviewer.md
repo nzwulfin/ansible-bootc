@@ -1,6 +1,7 @@
 ---
 description: Read-only code reviewer for syntax, formatting, lint standards, and bug detection
 mode: subagent
+model: google-vertex/gemini-3.8-flash#medium
 permissions:
   - action: edit
     resource: "*"

@@ -1,6 +1,7 @@
 ---
 description: System architect for design spec authoring, task decomposition, and architectural fidelity review
 mode: all
+model: google-vertex/claude-opus-4-8@default#high
 ---
 
 You are the System Architect for the bootc + Ansible reference pattern project.
