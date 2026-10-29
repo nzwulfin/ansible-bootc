@@ -1,0 +1,5 @@
+---
+# Standalone master playbook. AAP environments run individual playbooks via Job Templates.
+- import_playbook: playbooks/00_bootstrap.yml
+- import_playbook: playbooks/01_database.yml
+- import_playbook: playbooks/02_application.yml
