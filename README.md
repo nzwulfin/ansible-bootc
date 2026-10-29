@@ -22,6 +22,14 @@ automation.
 
 ## 1. Architecture Overview
 
+### Target audience and presumed familiarity
+
+This reference pattern is written for an enterprise Linux systems administrator:
+
+- **Traditional Automation (Assumed Fluent)**: You are experienced with RHEL administration, Ansible (roles, playbooks, inventory, vault), systemd, SSH, and firewalld. The repository does not explain basic playbook syntax or service drop-ins; it audits and implements them to senior enterprise standards.
+- **Image-Mode Linux (Assumed First Contact)**: You are encountering **bootc** and image-mode Linux for the first time. The repository actively bridges your mental model: teaching the bake-time vs. runtime boundary, `/usr`/`/etc`/`/var` filesystem semantics, and how traditional golden-image concepts map into bootable container images.
+- **Automation Platform (Conceptual)**: You have a working familiarity with Red Hat Ansible Automation Platform (AAP) concepts like Job Templates and Machine Credentials.
+
 ### The bake-time / runtime boundary
 
 The central design question is: *which system owns each piece of configuration?*
@@ -111,8 +119,7 @@ graph TD
         P1["01_database.yml (Live Credential)<br/>• Wait for MariaDB socket<br/>• Create app database & user (scoped to app IP)<br/>• Narrow firewall port to app IP"]
         P2["02_application.yml (Live Credential)<br/>• Template /etc/corp-app/config.ini (0640)<br/>• Start & enable corp-app.service<br/>• Poll loopback /health endpoint"]
 
-        P0 --> P1
-        P0 --> P2
+        P0 --> P1 --> P2
     end
 
     BuildTime -.->|Deploy via bootc / qcow2| Runtime
@@ -226,6 +233,18 @@ provisioned, never-onboarded host. Its lifecycle is invariant:
 | Reboot | Unchanged | `tmpfiles.d` has only `d` entries for `.ssh/`; existing files are not recreated |
 | Re-run `00_bootstrap.yml` | Unchanged | Play 1 probe fails (PSK gone); Play 2 skipped; Play 3 verifies live key still works |
 | Stale host (old image, new PSK generated) | Cannot be onboarded | Decommission and reprovision; never rescued |
+
+**Re-run console output note:** When re-running `00_bootstrap.yml` against an already-onboarded
+host, Play 1's recap will report `unreachable=1` in red. **This is expected and designed behavior**:
+because the PSK was removed at first contact, probing with the bootstrap key fails authentication.
+The task specifies `ignore_unreachable: true`, which skips Play 2's rotation and allows Play 3 to
+verify live-key connectivity. The UNREACHABLE status in Play 1 is the discriminator, not an outage.
+
+**Why not cloud-init?** Cloud-init or metadata services are common in public clouds for initial key
+injection. The baked-PSK pattern is valuable where cloud-init is unavailable, undesirable, or
+fragmented: air-gapped environments, bare-metal physical servers, or heterogeneous hypervisors.
+It exploits bootc's native install-only `/var` semantics to guarantee first-contact-only access
+with zero external agents or boot-time infrastructure.
 
 ```mermaid
 stateDiagram-v2
@@ -490,6 +509,29 @@ literally the team boundary in code. The platform/security team publishes `corp-
 workload teams pull from it and add their layer. No multi-stage build stages are
 needed — nothing in this pattern is compiled, so there is no "build artefact"
 separation requirement. The layered `FROM` is the full story.
+
+### Day-2 operations: change routing workflow
+
+Once hosts are provisioned and onboarded, operational changes route according to where
+the configuration lives:
+
+| Kind of change | Example | Day-2 Workflow |
+|---|---|---|
+| Platform standard | SSH hardening update, base admin tooling | Rebuild `corp-base` → rebuild derived workload images → trigger `bootc upgrade` on hosts |
+| Workload standard | MariaDB resource limits, TuneD profile, app release | Rebuild workload image (`corp-db` / `corp-app-img`) → trigger `bootc upgrade` on hosts |
+| Instance runtime state | DB password rotation, host IP change, app config | Update `ansible/inventory/` or vault → re-run Ansible playbooks |
+
+**Applying image updates atomically:**
+
+```bash
+# On the target host (or orchestrated via an Ansible command/task):
+bootc status                       # View currently booted deployment and staged update
+bootc upgrade                      # Pull new image layer and stage next deployment
+systemctl reboot                   # Atomically boot into the updated image
+
+# If an unexpected issue occurs post-reboot:
+bootc rollback                     # Atomically revert to the prior working deployment
+```
 
 ### Shared PSK: intentional design and blast radius
 
