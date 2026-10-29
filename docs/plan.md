@@ -137,6 +137,14 @@ Requirements:
 ```text
 ansible-bootc/
 ├── README.md                            # Architecture guide, design rationale, usage walkthrough
+├── docs/
+│   ├── plan.md                          # Requirements and design decisions (this document)
+│   └── design-spec.md                   # Technical design specification (architect output)
+├── scripts/
+│   └── generate-demo-keys.sh            # Project bootstrap: generates SSH key pairs and writes
+│                                        # the bootstrap pubkey into the base image build context.
+│                                        # Crosses the images/ansible boundary — lives at root,
+│                                        # not inside either subtree.
 ├── images/                              # Layered bootc container definitions
 │   ├── base/
 │   │   ├── Containerfile                # CentOS Stream 10 + admin tools + ansible account + PSK
@@ -197,11 +205,8 @@ ansible-bootc/
     │       ├── database.vault.yml       # Vault-encrypted DB-specific credentials (if any)
     │       ├── application.yml          # App port, DB host pointer
     │       └── application.vault.yml    # Vault-encrypted app-specific credentials (if any)
-    ├── keys/
-    │   ├── .gitignore                   # Excludes id_* private keys and vault password file
-    │   └── generate-demo-keys.sh        # Generates bootstrap & live key pairs; writes the
-    │                                    # bootstrap pubkey, with restrictive key options,
-    │                                    # into the base image build context
+    ├── keys/                            # Generated key material — all gitignored
+    │   └── .gitignore                   # Excludes id_* private keys and vault password file
     ├── playbooks/
     │   ├── 00_bootstrap.yml             # Bootstrap key probe & rotation (single discrete unit)
     │   ├── 01_database.yml              # DB instance runtime provisioning
@@ -227,7 +232,7 @@ ansible-bootc/
 
 - The bake-time vs runtime boundary, and why it is drawn where it is.
 - The `rootfs/` mirror-tree convention (build context = documentation of what lands where).
-- **Key generation → image build ordering**: the PSK is generated before any image is built; running generation after the build produces a key mismatch.
+- **Key generation → image build ordering**: run `scripts/generate-demo-keys.sh` before any image build; the script writes the bootstrap pubkey into the base image build context, and running it after the build produces a key mismatch.
 - Collection installation, vault setup, and end-to-end execution (run from the `ansible/` directory).
 - Practitioner notes:
   - Team split: the layered `FROM base` structure *is* the team boundary; multi-stage build stages are not needed.
@@ -250,7 +255,7 @@ ansible-bootc/
 
 ## Build & execution ordering
 
-1. Generate the demo keys (bootstrap + live) — must precede any image build, since the PSK must be in the image build context.
+1. Run `scripts/generate-demo-keys.sh` to generate the demo keys (bootstrap + live) — must precede any image build, since the PSK must be in the image build context. The script crosses the images/ansible boundary and lives at the repo root for that reason.
 2. Build the base image, then the database and application images.
 3. Provision the VMs from the images (out of scope).
 4. Install collections; run onboarding (PSK → live key); then the workload plays. Standalone, this is one `ansible-playbook` run; under AAP, two jobs (bootstrap credential, then live credential).
