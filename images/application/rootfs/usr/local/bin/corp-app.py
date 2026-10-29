@@ -21,6 +21,7 @@ so the mode-0640 root-owned config file is readable.
 import configparser
 import json
 import sys
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # G12: the config path is hardcoded on purpose. It is the contract with
@@ -176,6 +177,18 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def _error(self, status, detail):
         self._send_json(status, {"error": detail, "detail": detail})
+
+    def send_error(self, code, message=None, explain=None):
+        """Override BaseHTTPRequestHandler.send_error to emit JSON.
+
+        BaseHTTPRequestHandler.send_error writes an HTML body that violates
+        the JSON-only contract (design-spec §9, AppHandler docstring).
+        Any HTTP method not explicitly dispatched below (PUT, DELETE, PATCH,
+        OPTIONS, …) falls through to send_error via the base class; overriding
+        it here ensures every error response — including those produced for
+        unhandled methods — is a JSON object, never an HTML page.
+        """
+        self._error(code, message or "HTTP error")
 
     # ------------------------------------------------------------------
     # Route implementations
@@ -339,29 +352,47 @@ class AppHandler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
 
     def do_GET(self):
-        if self.path == "/health":
+        path = urllib.parse.urlsplit(self.path).path
+        if path == "/health":
             self._handle_health()
-        elif self.path == "/":
+        elif path == "/":
             self._handle_root()
         else:
-            self._error(404, f"no route for GET {self.path}")
+            self._error(404, f"no route for GET {path}")
 
     def do_POST(self):
-        if self.path == "/record":
+        path = urllib.parse.urlsplit(self.path).path
+        if path == "/record":
             self._handle_post_record()
-        elif self.path in ("/", "/health"):
+        elif path in ("/", "/health"):
             # Recognised path, unsupported method.
-            self._error(405, f"method POST not allowed on {self.path}")
+            self._error(405, f"method POST not allowed on {path}")
         else:
-            self._error(404, f"no route for POST {self.path}")
+            self._error(404, f"no route for POST {path}")
 
     def do_HEAD(self):
-        # HEAD is implied by BaseHTTPRequestHandler when do_GET exists;
-        # handle it explicitly to return JSON headers without a body.
-        if self.path == "/health":
-            self._send_json(200, {})
+        # HEAD must return the same status and headers as the equivalent GET
+        # but MUST NOT include a response body (RFC 9110 §9.3.2).
+        # _send_json writes to self.wfile, so we send the status line and
+        # headers manually and call end_headers() without writing any body.
+        path = urllib.parse.urlsplit(self.path).path
+        if path == "/health":
+            # Determine what the body length would be so Content-Length is
+            # accurate, but do not write the body itself.
+            body = json.dumps({}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
         else:
-            self._error(404, f"no route for HEAD {self.path}")
+            # For unknown paths emit a 404 header-only response.
+            body = json.dumps(
+                {"error": f"no route for HEAD {path}", "detail": f"no route for HEAD {path}"}
+            ).encode("utf-8")
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
 
 
 _CONFIG = None  # set by main(); read by the request handler

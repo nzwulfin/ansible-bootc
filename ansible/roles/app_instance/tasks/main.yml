@@ -64,6 +64,15 @@
   # first contact, now that the config file exists. daemon_reload: true
   # guarantees a freshly baked unit file is visible to systemd.
 
+- name: Flush handlers so a config change restarts the service before probes
+  ansible.builtin.meta: flush_handlers
+  # If config.ini was updated on an already-running host (idempotent re-run),
+  # the "Restart corp-app" handler is queued but would not normally execute
+  # until the end of the play — after the health and verification probes have
+  # already started against the stale process. Flushing here guarantees the
+  # restart completes before any probe task runs, so the probes always
+  # interrogate the process that read the current config.
+
 - name: Wait for the health endpoint to report HTTP 200
   ansible.builtin.uri:
     url: "http://127.0.0.1:{{ app_port }}/health"

@@ -523,7 +523,7 @@ curl -s http://127.0.0.1:8080/
 # {
 #   "service": "corp-app",
 #   "status": "operational",
-#   "database": {"status": "connected", "name": "corpdb", "host": "192.0.2.10"},
+#   "database": {"status": "connected", "name": "corpapp", "host": "192.0.2.10"},
 #   "count": 1,
 #   "records": [
 #     {"id": 1, "message": "ansible-bootstrap", "created_at": "2026-01-01 00:00:00"}

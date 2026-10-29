@@ -6,7 +6,8 @@
 #   ansible-galaxy collection install -r requirements.yml
 
 collections:
-  # community.mysql: provides mysql_db (database creation) and mysql_user (account management)
+  # community.mysql: provides mysql_db (database creation), mysql_user (account management),
+  # and mysql_query (arbitrary SQL execution, used for schema and seed-row tasks)
   # used by the mysql_instance role to provision the MariaDB instance at runtime.
   - name: community.mysql
     version: ">=3.0.0"
