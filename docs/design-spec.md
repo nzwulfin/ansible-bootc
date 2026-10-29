@@ -401,23 +401,63 @@ no-pty,no-X11-forwarding,no-agent-forwarding,no-user-rc ssh-ed25519 AAAA... comm
 
 ### 6.3 `images/application/rootfs/usr/local/bin/corp-app.py`
 
-**Purpose:** Minimal application service demonstrating the database wire-up pattern. The value is in the image/Ansible design, not the application logic.
+**Purpose:** Minimal working application service demonstrating the full database wire-up pattern — read, write, and health verification. The value is in the image/Ansible design, not the application logic; the service is deliberately small, but it is a genuine working instance (it reads and writes real rows), not a bare connection probe. It is the bootc analogue of a container application whose runtime entrypoint (here, Ansible) has already bootstrapped the database, schema, and seed data before the service starts serving.
 
-**Must implement:**
+**Runtime/dependency constraints (unchanged):**
+- Pure Python standard library plus `pymysql`. No third-party web framework, ORM, or HTTP library beyond the standard library (e.g., `http.server`, `json`, `configparser`). `pymysql` is the only non-stdlib import and is baked into the image (G9).
 - Read configuration from exactly `/etc/corp-app/config.ini` — this path is hardcoded and is the contract with the Ansible role (G12). No environment variable override, no CLI argument. The hardcoding makes the interface explicit and unavoidable.
 - Exit with a non-zero code and a clear error message if the config file does not exist or `pymysql` is not importable.
-- Attempt a MariaDB connection using the `[database]` section: `host`, `port` (default 3306), `name` (database name), `user`, `password`. Use a short connect timeout.
-- Serve a JSON health endpoint on `127.0.0.1` only (loopback binding is mandatory; no external port opened, consistent with G7's firewall constraint) at the port specified in `[server] port` (default 8080).
-- `GET /health`: respond HTTP 200 with `{"database": "connected", "detail": "ok"}` on successful DB connection; HTTP 503 with `{"database": "error", "detail": "<exception message>"}` on failure. All other paths: HTTP 404.
-- `Content-Type: application/json` on all responses.
+- Serve on `127.0.0.1` only (loopback binding is mandatory and hardcoded; no external port opened, consistent with G7's firewall constraint) at the port specified in `[server] port` (default 8080).
+- `Content-Type: application/json` on all responses, including error responses.
 
-**Must not do:** Bind to any interface other than `127.0.0.1`. Must not read config from any path other than `/etc/corp-app/config.ini`. Must not attempt to create the config file or its directory.
+**Database interface:**
+- Open MariaDB connections using the `[database]` section: `host`, `port` (default 3306), `name` (database name), `user`, `password`, with a short connect timeout. The contract does not mandate a connection-pooling strategy; opening a fresh short-lived connection per request is acceptable and preferred for clarity. Connections must be closed/released on every path, including error paths.
+- The application assumes the `service_records` table and its seed row already exist — they are created by the `mysql_instance` role (Section 8.2), not by the application. The application must **not** issue DDL (`CREATE TABLE`, `ALTER`, etc.) and must **not** create or seed schema. This preserves the bake/runtime/entrypoint division: Ansible is the entrypoint that bootstraps schema; the app only consumes it.
+
+**Table contract (read-only dependency — authoritative definition lives in Section 8.2):** The application reads from and writes to a table whose logical shape is: an auto-increment integer primary key (`id`), a non-null text `message` column, and a `created_at` timestamp column defaulting to insertion time. The application depends only on these three column names; it must not depend on column order, storage engine, or any column beyond these three.
+
+**Routes (behavioural contract):**
+
+1. `GET /` — service info + data read.
+   - Query the most recent rows from `service_records` (ordered by `id` descending; a small bounded limit such as 50 is acceptable and should be applied so the response stays bounded).
+   - Respond HTTP 200 with a JSON object carrying, at minimum: a `service` identifier string, a `database` status indicator, a `count` (total rows in `service_records`), and a `records` array. Each element of `records` is an object exposing at least the `id`, `message`, and `created_at` values for that row (timestamps serialized as strings).
+   - On database failure: HTTP 503 with an error object (see error contract below).
+
+2. `POST /record` — data write (proves network write access).
+   - Accept a request body of `Content-Type: application/json` containing an object with a `message` string.
+   - Validate: if the body is not valid JSON, or `message` is missing, empty, or not a string, respond HTTP 400 with an error object and perform no write.
+   - On valid input: insert a new row into `service_records` with the supplied `message`, then read back the inserted row (by its new primary key) and respond HTTP 201 with a JSON object representing the inserted record (at least `id`, `message`, `created_at`). The read-back proves the write committed and is visible.
+   - On database failure: HTTP 503 with an error object.
+
+3. `GET /health` — connectivity + record count.
+   - Verify database connectivity and count the rows in `service_records`.
+   - On success: HTTP 200 with a JSON object indicating `database == "connected"` and carrying the record `count` (and a short `detail` such as `"ok"`).
+   - On failure: HTTP 503 with a JSON object indicating `database == "error"` and a `detail` carrying the exception message.
+
+4. Any other method/path combination: HTTP 404 with a JSON error object. A recognised path with an unsupported method (e.g., `POST /health`) should respond HTTP 405; 404 is acceptable if a 405 distinction is not implemented, but malformed input on `POST /record` must be 400, never 404.
+
+**Error contract:** Every non-2xx response carries a JSON body with at least a human-readable `detail` (or `error`) string. The health endpoint's success/failure body must expose the `database` key (`"connected"` / `"error"`) and `detail` key the `app_instance` role asserts on. No response may return a non-JSON body or an empty body.
+
+Example — `GET /` success body shape (illustrative only, not normative content to copy):
+```
+{"service": "corp-app", "database": "connected", "count": 1,
+ "records": [{"id": 1, "message": "ansible-bootstrap", "created_at": "2026-01-01 00:00:00"}]}
+```
+
+Example — `POST /record` request and 201 response shape (illustrative only):
+```
+# request body:  {"message": "hello from app host"}
+# 201 response:  {"id": 2, "message": "hello from app host", "created_at": "2026-01-01 00:05:00"}
+```
+
+**Must not do:** Bind to any interface other than `127.0.0.1`. Read config from any path other than `/etc/corp-app/config.ini`. Create the config file or its directory. Issue any DDL or create/seed schema (that is the `mysql_instance` role's responsibility — Section 8.2). Import any non-stdlib module other than `pymysql`. Leak database connections on error paths.
 
 **Interface agreements:**
-- The config section names and key names the application reads (`[database]` → `host`, `port`, `name`, `user`, `password`; `[server]` → `port`) must exactly match what the Ansible template (`config.ini.j2`) writes. The application does **not** read a `bind_address` key; loopback binding is hardcoded (see behavioural contract above), so no such key may appear in its read-set. Any divergence silently breaks the application (G12).
-- The health endpoint response body structure (`database`, `detail` keys) must match what the `app_instance` role's `assert` task checks.
+- The config section names and key names the application reads (`[database]` → `host`, `port`, `name`, `user`, `password`; `[server]` → `port`) must exactly match what the Ansible template (`config.ini.j2`) writes. The application does **not** read a `bind_address` key; loopback binding is hardcoded, so no such key may appear in its read-set. Any divergence silently breaks the application (G12).
+- The table name (`service_records`) and the three column names (`id`, `message`, `created_at`) the application reads and writes must exactly match the schema created by the `mysql_instance` role (Section 8.2). A divergence breaks `GET /`, `POST /record`, and `GET /health` at runtime.
+- The health endpoint response body structure (`database`, `detail`, `count` keys) and the `GET /` response body structure (`records` array with `message` values) must match what the `app_instance` role's verification tasks assert (Section 8.3) — specifically, the seed `message` value `ansible-bootstrap` must be findable in the `GET /` output.
 
-**Applicable constraints:** G12.
+**Applicable constraints:** G7 (loopback-only, no firewall port), G9 (stdlib + baked `pymysql` only), G12.
 
 ---
 
@@ -576,7 +616,7 @@ Include a comment noting AAP usage: run as a separate job template with the live
 
 ### 8.2 Role: `mysql_instance`
 
-**Purpose:** Provisions the MariaDB instance for runtime use: creates the application database and account, and narrows the firewall rule.
+**Purpose:** Provisions the MariaDB instance for runtime use. This role is the bootc analogue of a container runtime entrypoint (`docker-entrypoint-initdb.d`): it bootstraps not only the application database and account, but also the initial table schema and a seed record, so the service starts against a fully initialized instance. It also narrows the firewall rule to the application host.
 
 **Must implement (tasks, in this order):**
 1. Wait for the MariaDB unix socket to exist (`ansible.builtin.wait_for` on `/var/lib/mysql/mysql.sock`, `state: present`, with a reasonable timeout). This proves the service has completed initialization before any DB work begins.
@@ -586,15 +626,33 @@ Include a comment noting AAP usage: run as a separate job template with the live
    - `password: "{{ app_db_password }}"` (G4).
    - `priv` scoped to the application database only.
    - `login_unix_socket: /var/lib/mysql/mysql.sock`.
-4. Remove the broad `mysql` firewall service (image-baked, open to all) using `ansible.posix.firewalld` with `service: mysql`, `state: disabled`, `permanent: true`, `immediate: true`.
-5. Add a rich rule allowing MySQL only from `app_host_address` using `ansible.posix.firewalld` with a rich rule in the form `rule family='ipv4' source address='{{ app_host_address }}/32' service name='mysql' accept`, `state: enabled`, `permanent: true`, `immediate: true`.
+4. Create the initial table schema inside the application database. Use a schema-application mechanism that is idempotent and safe to re-run (e.g., `community.mysql.mysql_query` executing a `CREATE TABLE IF NOT EXISTS`, run against the application database via the unix socket, root access). The table is `service_records` and its contract is fixed below. This task must be scoped to the application database (target it by database name; do not create objects in any other schema).
+5. Seed the initial record. Insert exactly one row whose `message` value is `ansible-bootstrap` **only if the table is currently empty** — the seed must be idempotent so re-running the role never accumulates duplicate bootstrap rows. The idempotency guard is a presence check (insert the seed row conditionally on a count of `0`, or use an insert pattern that is a no-op when a bootstrap row already exists); a blind repeated `INSERT` is non-conforming. This seed row is what the `app_instance` role later asserts is visible via `GET /` (Section 8.3), proving the Ansible-as-entrypoint bootstrap reached the application layer.
+6. Remove the broad `mysql` firewall service (image-baked, open to all) using `ansible.posix.firewalld` with `service: mysql`, `state: disabled`, `permanent: true`, `immediate: true`.
+7. Add a rich rule allowing MySQL only from `app_host_address` using `ansible.posix.firewalld` with a rich rule in the form `rule family='ipv4' source address='{{ app_host_address }}/32' service name='mysql' accept`, `state: enabled`, `permanent: true`, `immediate: true`.
+
+**Schema contract — `service_records` (authoritative; the application in Section 6.3 depends on this):** The table must declare at least these three columns, and the application depends only on these names:
+- `id` — integer, auto-increment, primary key.
+- `message` — variable-length text, `NOT NULL` (e.g., `VARCHAR` of a reasonable bounded length; choice of length is an implementation detail, but it must be `NOT NULL` so `POST /record` with a valid message always succeeds and an empty/missing message is rejected at the app layer before reaching SQL).
+- `created_at` — timestamp, defaulting to the row's insertion time (e.g., `DEFAULT CURRENT_TIMESTAMP`), so neither Ansible nor the application supplies it explicitly.
+
+The table inherits the database's `utf8mb4` / `utf8mb4_unicode_ci` character set and collation from the corporate baseline (Section 5.2); no per-table character set override is required or permitted.
+
+Example — schema shape (illustrative only, not normative content to copy):
+```
+service_records(id INT AUTO_INCREMENT PRIMARY KEY,
+                message VARCHAR(255) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+```
 
 **Must not do:**
 - Set a MariaDB root password. Root access is always via the unix socket.
 - Use `become: false` — the play sets `become: true`; DB socket access and firewall management require root.
 - Install any packages (G9).
+- Grant the application account any DDL privilege. The account is used by the app only for `SELECT`/`INSERT` against `service_records`; schema creation is performed here via the root unix socket, not by the app account. The `priv` grant must remain scoped to the application database and to the data-manipulation privileges the app actually needs.
+- Insert the seed row unconditionally (the empty-table / conditional guard in task 5 is mandatory; re-runs must not duplicate it).
 
-**`defaults/main.yml` contract:** Must declare the role's overridable operational knobs with sensible defaults: the MariaDB unix socket path (default `/var/lib/mysql/mysql.sock`), the `wait_for` socket timeout (a conservative default allowing first-boot initialization), the firewall service name narrowed at runtime (default `mysql`), and the privilege grant string applied to the application account (scoped to the application database). Must **not** declare `app_db_password` (G4), nor the shared/instance values `app_db_name`, `app_db_user`, or `app_host_address` — these are resolved from `group_vars` (`all/` and `database/`) and must not be shadowed by a role default.
+**`defaults/main.yml` contract:** Must declare the role's overridable operational knobs with sensible defaults: the MariaDB unix socket path (default `/var/lib/mysql/mysql.sock`), the `wait_for` socket timeout (a conservative default allowing first-boot initialization), the firewall service name narrowed at runtime (default `mysql`), the privilege grant string applied to the application account (scoped to the application database), the table name (default `service_records`), and the seed message value (default `ansible-bootstrap`). Must **not** declare `app_db_password` (G4), nor the shared/instance values `app_db_name`, `app_db_user`, or `app_host_address` — these are resolved from `group_vars` (`all/` and `database/`) and must not be shadowed by a role default. If the table name is made an overridable default, the same default must be honoured by the application's hardcoded table reference — but since the application hardcodes `service_records` (Section 6.3), the table name default here is documentation of agreement, not a free knob: changing it without changing the application breaks the interface (treat `service_records` as a fixed interface value, like the config path under G12).
 
 **Applicable constraints:** G1 (firewalld module uses the running daemon; this is a runtime task, not a build step — `ansible.posix.firewalld` with `immediate: true` is correct here), G4, G9.
 
@@ -602,14 +660,17 @@ Include a comment noting AAP usage: run as a separate job template with the live
 
 ### 8.3 Role: `app_instance`
 
-**Purpose:** Writes the application runtime configuration, enables and starts the service, and verifies the health endpoint reports a successful database connection.
+**Purpose:** Writes the application runtime configuration, enables and starts the service, and verifies the application is a genuinely working instance: the health endpoint reports a successful database connection, the Ansible-seeded record is visible through the read endpoint, and a write through the write endpoint succeeds. This verification proves the full round-trip — Ansible bootstrapped schema + seed on the database host (Section 8.2), and the application on a different host reads and writes that schema over the network.
 
 **Must implement (tasks, in this order):**
 1. Ensure `/etc/corp-app/` exists with mode `0750`, owner `root:root`. The service runs as root and reads this directory.
 2. Deploy the config from template `config.ini.j2` to `/etc/corp-app/config.ini` with mode `0640`, owner `root:root`. Notify a handler to restart the service if the config changes. (G12: this path must match `CONFIG_PATH` in `corp-app.py`.)
 3. Enable and start `corp-app` using `ansible.builtin.systemd` with `state: started`, `enabled: true`, `daemon_reload: true` (G7: Ansible does the enabling; the image does not).
-4. Wait for the health endpoint with `ansible.builtin.uri` targeting `http://127.0.0.1:{{ app_port }}/health`, `status_code: 200`, with a retry loop (sufficient retries and delay to allow the service to connect to the database).
-5. Assert that the response body contains `database == "connected"`.
+4. **Health probe.** Wait for the health endpoint with `ansible.builtin.uri` targeting `http://127.0.0.1:{{ app_port }}/health`, `status_code: 200`, with a retry loop (sufficient retries and delay to allow the service to connect to the database). Register the result and assert the response body indicates `database == "connected"`. This gates all subsequent verification: no point probing read/write if connectivity is down.
+5. **Read / seed-visibility assertion.** Issue `GET http://127.0.0.1:{{ app_port }}/` with `ansible.builtin.uri`, `status_code: 200`, `return_content: true` (or rely on the module's parsed JSON). Assert that the parsed response contains the seed record — specifically, that the configured seed message value (`ansible-bootstrap`, agreeing with Section 8.2's seed) appears among the `message` values in the `records` array. This proves the database bootstrap performed on the DB host is visible to the application over the network. The assertion must inspect the structured JSON (the `records`/`message` fields), not perform a brittle substring match on a raw string where feasible.
+6. **Write verification.** Issue `POST http://127.0.0.1:{{ app_port }}/record` with `ansible.builtin.uri`, `method: POST`, `body_format: json`, a body carrying a `message` string (a recognizable verification value, e.g., derived from the inventory host name or a fixed verification token), and `status_code: 201`. Assert the response is the inserted record and that its `message` equals the value sent. This proves the application account has network write permission to the database — the write path, not just the read/connect path, is exercised end to end.
+
+   - Idempotency note: because `POST /record` inserts a new row on every successful call, this task is **not** naturally idempotent against the database (a re-run adds another verification row). This is acceptable and expected for a verification step and must be documented as such; it does not violate the project-wide idempotency principle, which governs configuration convergence, not an explicit write-probe. Implementations must not attempt to delete the probe row or otherwise fight this — the extra rows are harmless demo data. (Contrast with the seed in Section 8.2, which **must** be idempotent because it is bootstrap state, not a probe.)
 
 **Must implement (handler):** `Restart corp-app` — runs `ansible.builtin.systemd` with `state: restarted`, `daemon_reload: true`.
 
@@ -619,9 +680,9 @@ Include a comment noting AAP usage: run as a separate job template with the live
 
 All values rendered from the variable schema in Section 7.6.
 
-**Must not do:** Open any firewall port (the health endpoint is loopback-only). Must not install packages (G9).
+**Must not do:** Open any firewall port (the health endpoint and all app routes are loopback-only). Install packages (G9). Attempt to create or seed database schema (that is `mysql_instance`'s job, Section 8.2) — the read and write assertions consume the schema, they do not create it. Delete the write-probe row or mutate the seed row.
 
-**`defaults/main.yml` contract:** Must declare the role's overridable operational knobs with sensible defaults: the config directory mode (default `0750`) and config file mode (default `0640`), the systemd unit name managed by the role (default `corp-app`), and the health-endpoint poll parameters (retry count and delay). Must **not** declare `app_db_password` (G4), nor the shared/instance values `app_db_name`, `app_db_user`, `db_host`, or `app_port` — these are resolved from `group_vars` (`all/` and `application/`) and must not be shadowed by a role default. The config path is fixed by G12 and must not be made an overridable default.
+**`defaults/main.yml` contract:** Must declare the role's overridable operational knobs with sensible defaults: the config directory mode (default `0750`) and config file mode (default `0640`), the systemd unit name managed by the role (default `corp-app`), the health-endpoint poll parameters (retry count and delay), the expected seed message value asserted in the read check (default `ansible-bootstrap`, agreeing with Section 8.2), and the verification message sent by the write probe (a sensible default verification token). Must **not** declare `app_db_password` (G4), nor the shared/instance values `app_db_name`, `app_db_user`, `db_host`, or `app_port` — these are resolved from `group_vars` (`all/` and `application/`) and must not be shadowed by a role default. The config path is fixed by G12 and must not be made an overridable default.
 
 **Applicable constraints:** G4, G7, G9, G12.
 
@@ -639,6 +700,8 @@ The following cross-component agreements must hold. A violation in any one file 
 | Tuned profile name | Database Containerfile `echo corp-database > /etc/tuned/active_profile`, `rootfs/usr/lib/tuned/corp-database/` directory name | `corp-database` |
 | Application config path | `corp-app.py` hardcoded `CONFIG_PATH`, `app_instance` template `dest:` | `/etc/corp-app/config.ini` |
 | Config INI keys | `corp-app.py` config reads, `config.ini.j2` template writes | `[database]`: `host`, `port`, `name`, `user`, `password`; `[server]`: `port` |
+| Schema table + columns | `corp-app.py` SQL (read/write), `mysql_instance` schema-creation task, `app_instance` read-assertion | table `service_records`; columns `id`, `message`, `created_at` |
+| Seed record message | `mysql_instance` seed task, `app_instance` `GET /` read assertion, `app_instance` defaults | `ansible-bootstrap` |
 | App host IP | `hosts.yml` `app01.ansible_host`, `group_vars/database/vars.yml` `app_host_address` | Must be identical |
 | DB host IP | `hosts.yml` `db01.ansible_host`, `group_vars/application/vars.yml` `db_host` | Must be identical |
 | App DB password variable name | `all/vault.yml`, `mysql_instance` role `password:`, `config.ini.j2` template | `app_db_password` |
@@ -889,9 +952,12 @@ Each task is a discrete, independently reviewable unit. Dependencies are listed;
 **Acceptance criteria (against a running database VM):**
 - `mysql -u root -S /var/lib/mysql/mysql.sock -e "SHOW DATABASES;"` includes the application database.
 - `mysql -u root -S /var/lib/mysql/mysql.sock -e "SELECT user,host FROM mysql.user WHERE user='corp_app';"` shows the account with `host` equal to the configured `app_host_address` (not `localhost`, not `%`).
+- The `service_records` table exists in the application database with columns `id` (auto-increment PK), `message` (NOT NULL text), and `created_at` (timestamp defaulting to insertion time): e.g. `mysql -u root -S /var/lib/mysql/mysql.sock -e "DESCRIBE <app_db>.service_records;"` shows the three columns with the expected attributes.
+- Exactly one seed row exists after the first run: `SELECT message FROM <app_db>.service_records WHERE message='ansible-bootstrap';` returns one row.
+- Re-running `01_database.yml` produces no changes (idempotent) **and** does not add a second `ansible-bootstrap` row (the seed count remains 1).
+- The `corp_app` account's grants are scoped to the application database and carry no DDL privilege (the app cannot create tables).
 - `firewall-cmd --list-rich-rules` shows a rule for `app_host_address` on port 3306.
 - `firewall-cmd --list-services` does not include `mysql` (broad service removed).
-- Re-running `01_database.yml` produces no changes (idempotent).
 - No task attempts to set a MariaDB root password.
 
 **Dependencies:** Task 5. (Task 6 and Task 3 are required for live execution, not for file authoring.)
@@ -920,9 +986,13 @@ Each task is a discrete, independently reviewable unit. Dependencies are listed;
 - `/etc/corp-app/config.ini` exists with mode `0640`, owner `root:root`.
 - `systemctl is-active corp-app` outputs `active`.
 - `systemctl is-enabled corp-app` outputs `enabled` (G7: Ansible enabled it, not the image).
-- `curl -s http://127.0.0.1:8080/health` (run on the app host) returns HTTP 200 and a JSON body where `database == "connected"`.
+- `curl -s http://127.0.0.1:8080/health` (run on the app host) returns HTTP 200 and a JSON body where `database == "connected"` and a `count` field is present.
+- `curl -s http://127.0.0.1:8080/` returns HTTP 200 and a JSON body whose `records` array contains an element with `message == "ansible-bootstrap"` (the Ansible-seeded row is visible over the network).
+- `curl -s -X POST -H 'Content-Type: application/json' -d '{"message":"probe"}' http://127.0.0.1:8080/record` returns HTTP 201 and a JSON body echoing the inserted record (`message == "probe"`, with an `id` and `created_at`).
+- `curl -s -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8080/record` returns HTTP 400 (missing `message` rejected before any write).
+- The `app_instance` role's play run performs the health probe, the `GET /` seed assertion, and the `POST /record` write assertion, and fails loudly if any of the three does not hold.
 - The template `config.ini.j2` contains exactly the section and key names the application reads: `[database]` with `host`, `port`, `name`, `user`, `password`; `[server]` with `port` only — no `bind_address` key (G12).
-- Re-running `02_application.yml` produces no changes (idempotent), or triggers the restart handler if config was touched (handler is idempotent).
+- Re-running `02_application.yml` converges config idempotently (no config change ⇒ no restart); the write-verification task is expected to add one new `service_records` row per run (documented non-idempotent probe) and must not error on re-run.
 
 **Dependencies:** Task 5. (Task 6, 4, 7 required for live execution.)
 
