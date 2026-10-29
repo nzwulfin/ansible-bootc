@@ -42,10 +42,12 @@
   vars:
     # PSK override for the onboarding plays. ansible.cfg defaults to the
     # live key (keys/id_live); the bootstrap phase explicitly uses the
-    # bootstrap private key. The path is relative to the ansible/ run
-    # directory (G11); bootstrap_key_path (role default or extra var)
+    # bootstrap private key. The fallback resolves relative to
+    # playbook_dir (the playbooks/ directory), so the path is stable
+    # whether the playbook runs from ansible/ (G11) or is imported by
+    # site.yml; bootstrap_key_path (role default or extra var)
     # overrides the fallback when provided.
-    ansible_ssh_private_key_file: "{{ bootstrap_key_path | default('keys/id_bootstrap') }}"
+    ansible_ssh_private_key_file: "{{ bootstrap_key_path | default(playbook_dir ~ '/../keys/id_bootstrap') }}"
   tasks:
     - name: Ping over the PSK
       ansible.builtin.ping:
@@ -64,7 +66,7 @@
   vars:
     # Same PSK override as Play 1: rotation still authenticates with the
     # bootstrap key — the live key is installed by the role's first task.
-    ansible_ssh_private_key_file: "{{ bootstrap_key_path | default('keys/id_bootstrap') }}"
+    ansible_ssh_private_key_file: "{{ bootstrap_key_path | default(playbook_dir ~ '/../keys/id_bootstrap') }}"
   tasks:
     - name: Install the live management key and remove the PSK
       ansible.builtin.include_role:
@@ -74,6 +76,7 @@
       # the PSK is already gone, so authentication fails) must never
       # drive rotation; the probe outcome is the unambiguous
       # discriminator.
+      when: psk_reachable | default(false)
 
 - name: Verify live key access on all hosts
   hosts: all
