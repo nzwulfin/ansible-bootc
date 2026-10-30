@@ -127,7 +127,7 @@ graph TD
     subgraph BuildTime ["Bake-Time: bootc Container Images (Platform & Workload Standards)"]
         Base["Base Image (CentOS Stream 10)<br/>• Admin tools & firewalld<br/>• sysusers.d account (5000:5000)<br/>• Key-only SSH drop-in<br/>• Baked PSK in /var/home/.../authorized_keys"]
         DB["Database Image<br/>• MariaDB + python3-PyMySQL<br/>• UTF-8 my.cnf.d baseline<br/>• /usr/lib resource limits drop-in<br/>• /usr/lib tuned profile (corp-database)<br/>• Offline MySQL port open"]
-        App["Application Image<br/>• python3-PyMySQL + curl<br/>• corp-app.py (loopback only)<br/>• /usr/lib corp-app.service (baked, NOT enabled)"]
+        App["Application Image<br/>• python3-PyMySQL + curl<br/>• corp-app.py: GET /, GET /health, POST /record<br/>• /usr/lib corp-app.service (baked, NOT enabled)"]
 
         Base --> DB
         Base --> App
@@ -136,7 +136,7 @@ graph TD
     subgraph Runtime ["Runtime: Ansible Automation (Instance-Specific Configuration)"]
         P0["00_bootstrap.yml (PSK Credential)<br/>• Probe with bootstrap PSK<br/>• Install live key, remove PSK<br/>• Verify live key connectivity"]
         P1["01_database.yml (Live Credential)<br/>• Wait for MariaDB socket<br/>• Create app database & user (scoped to app IP)<br/>• Narrow firewall port to app IP"]
-        P2["02_application.yml (Live Credential)<br/>• Template /etc/corp-app/config.ini (0640)<br/>• Start & enable corp-app.service<br/>• Poll loopback /health endpoint"]
+        P2["02_application.yml (Live Credential)<br/>• Template /etc/corp-app/config.ini (0640)<br/>• Start & enable corp-app.service<br/>• Poll GET /health until database connected<br/>• Assert GET / contains ansible-bootstrap seed<br/>• POST /record write-verification (201)"]
 
         P0 --> P1 --> P2
     end
@@ -510,12 +510,45 @@ ansible-playbook playbooks/01_database.yml
 ansible-playbook playbooks/02_application.yml
 ```
 
-**Verify the health endpoint (run on the application host):**
+**Verify the application endpoints (run on the application host):**
 
 ```bash
+# Health check — proves database connectivity and returns row count
 curl -s http://127.0.0.1:8080/health
-# Expected: {"database": "connected", "detail": "ok"}
+# Expected: {"database": "connected", "count": 1, "detail": "ok"}
+
+# Service root — returns service metadata, database info, and all records
+curl -s http://127.0.0.1:8080/
+# Expected (abbreviated):
+# {
+#   "service": "corp-app",
+#   "status": "operational",
+#   "database": {"status": "connected", "name": "corpapp", "host": "192.0.2.10"},
+#   "count": 1,
+#   "records": [
+#     {"id": 1, "message": "ansible-bootstrap", "created_at": "2026-01-01 00:00:00"}
+#   ]
+# }
+
+# Write a new record — proves network write access to the database
+curl -s -X POST \
+     -H 'Content-Type: application/json' \
+     -d '{"message": "hello from app host"}' \
+     http://127.0.0.1:8080/record
+# Expected (HTTP 201):
+# {"id": 2, "message": "hello from app host", "created_at": "2026-01-01 00:01:00"}
+
+# Validation — missing or empty message returns 400
+curl -s -o /dev/null -w "%{http_code}" \
+     -X POST -H 'Content-Type: application/json' \
+     -d '{}' \
+     http://127.0.0.1:8080/record
+# Expected: 400
 ```
+
+The `ansible-bootstrap` record visible in `GET /` is the Ansible-as-entrypoint proof:
+the `mysql_instance` role created the schema and seeded that row on the database host
+before the application started serving, and the application reads it over the network.
 
 ---
 
@@ -680,6 +713,43 @@ Ansible performs the enable and start after writing the config:
     enabled: true
     daemon_reload: true
 ```
+
+### Application endpoints: the full CRUD demonstration
+
+`corp-app.py` implements three endpoints that prove the complete Ansible-as-entrypoint
+bootstrap pattern end to end. The application **does not create schema** — the
+`mysql_instance` role creates the `service_records` table and seeds the
+`ansible-bootstrap` row before the service ever starts.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `GET /health` | GET | Database connectivity probe + row count. Returns `{"database": "connected", "count": N, "detail": "ok"}` on success, `{"database": "error", ...}` with HTTP 503 on failure. This is the endpoint the Ansible health-poll task retries against. |
+| `GET /` | GET | Service metadata + record listing. Returns a JSON object with `service`, `status`, `database` info, total `count`, and a `records` array of the 50 most-recent rows (ordered by `id` DESC). The `ansible-bootstrap` seed row seeded by Ansible is visible here — proving the database bootstrap on the remote database host reached the application. |
+| `POST /record` | POST | Insert a new record. Accepts `{"message": "..."}`. Returns HTTP 201 with the inserted row (`id`, `message`, `created_at`). Returns 400 for missing, empty, or non-string `message`. The Ansible `app_instance` role uses this endpoint to verify the application account has network write access to the database. |
+
+**Input validation contract for `POST /record`:**
+
+```bash
+# Valid — returns 201
+curl -s -X POST -H 'Content-Type: application/json' \
+     -d '{"message": "my record"}' \
+     http://127.0.0.1:8080/record
+
+# Missing message field — returns 400
+curl -s -X POST -H 'Content-Type: application/json' \
+     -d '{}' http://127.0.0.1:8080/record
+
+# Empty message — returns 400
+curl -s -X POST -H 'Content-Type: application/json' \
+     -d '{"message": ""}' http://127.0.0.1:8080/record
+
+# Invalid JSON — returns 400
+curl -s -X POST -H 'Content-Type: application/json' \
+     -d 'not-json' http://127.0.0.1:8080/record
+```
+
+All error responses carry a JSON body with `error` and `detail` strings.
+No response may return a non-JSON body or an empty body.
 
 **How `systemctl enable` works during image builds:** Administrators may wonder how
 `systemctl enable sshd` (in the base image) or `systemctl enable mariadb` (in the database

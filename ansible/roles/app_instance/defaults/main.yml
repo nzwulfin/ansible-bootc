@@ -56,3 +56,16 @@ db_port: 3306
 # 30 attempts x 5 s = up to 150 s covers slow VMs without blocking forever.
 app_health_retries: 30
 app_health_delay: 5
+
+# Expected seed message value asserted in the GET / read check.
+# Must agree with mariadb_seed_message in the mysql_instance role defaults
+# and the authoritative contract in design-spec.md §9 (Interface Agreement
+# table, "Seed record message" row). A divergence means the read assertion
+# passes even if the wrong seed row is present, defeating the end-to-end proof.
+app_seed_message: ansible-bootstrap
+
+# Message sent by the POST /record write-verification task.
+# This is a deliberate non-idempotent probe: each role run adds one row with
+# this value. The extra rows are harmless demo data (design-spec.md §8.3
+# idempotency note). Do not attempt to delete or suppress them.
+app_verify_message: ansible-app-verification

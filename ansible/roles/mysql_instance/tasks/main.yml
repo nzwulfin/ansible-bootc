@@ -50,6 +50,61 @@
   # app_db_password comes from all/vault.yml (G4); it is never declared in
   # this role's defaults or in any group-specific vault.
 
+- name: Create service_records schema (idempotent)
+  community.mysql.mysql_query:
+    login_unix_socket: "{{ mariadb_socket }}"
+    login_db: "{{ app_db_name }}"
+    query: >-
+      CREATE TABLE IF NOT EXISTS {{ mariadb_table_name }}
+      (id INT AUTO_INCREMENT PRIMARY KEY,
+       message VARCHAR(255) NOT NULL,
+       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+  become: true
+  # CREATE TABLE IF NOT EXISTS is inherently idempotent: a re-run is a no-op
+  # when the table already exists. Root unix-socket access is used here because
+  # the application account carries only SELECT/INSERT/UPDATE/DELETE — no DDL
+  # privilege (design-spec.md §8.2 "Must not do"). The app_db_name database is
+  # the target; no objects are created in any other schema.
+  #
+  # Table contract (authoritative — design-spec.md §8.2):
+  #   id         INT AUTO_INCREMENT PRIMARY KEY
+  #   message    VARCHAR(255) NOT NULL
+  #   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  # The application (§6.3) depends on exactly these three column names.
+
+- name: Check whether the bootstrap seed row already exists
+  community.mysql.mysql_query:
+    login_unix_socket: "{{ mariadb_socket }}"
+    login_db: "{{ app_db_name }}"
+    query: >-
+      SELECT COUNT(*) AS cnt
+      FROM {{ mariadb_table_name }}
+      WHERE message = %s
+    positional_args:
+      - "{{ mariadb_seed_message }}"
+  become: true
+  register: _seed_check
+  # Read the count before deciding whether to insert. Separating the check
+  # from the insert makes the idempotency guard explicit and avoids a blind
+  # INSERT that would accumulate duplicate bootstrap rows on every re-run.
+
+- name: Insert bootstrap seed row (only if not already present)
+  community.mysql.mysql_query:
+    login_unix_socket: "{{ mariadb_socket }}"
+    login_db: "{{ app_db_name }}"
+    query: >-
+      INSERT INTO {{ mariadb_table_name }} (message) VALUES (%s)
+    positional_args:
+      - "{{ mariadb_seed_message }}"
+  become: true
+  when: _seed_check.query_result[0][0]['cnt'] | int == 0
+  # The `when` guard is the idempotency mechanism (design-spec.md §8.2 task 5):
+  # insert only if the seed row is absent. Re-running the role when the row
+  # already exists produces 0 changes — the `when` condition evaluates false
+  # and the task is skipped entirely. The seed row is what the app_instance
+  # role asserts is visible via GET /, proving Ansible-as-entrypoint bootstrap
+  # reached the application layer (§8.3 task 5).
+
 - name: Remove broad mysql firewall service (image-baked, open to all)
   ansible.posix.firewalld:
     service: "{{ mariadb_firewall_service }}"
