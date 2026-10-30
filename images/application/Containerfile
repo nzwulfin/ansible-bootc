@@ -23,9 +23,9 @@
 # path; the unit's process (running as root) reads that same path.
 # Divergence between any two of the three silently breaks the app.
 #
-# No firewall step in this image (deliberate): the health endpoint binds
-# 127.0.0.1 only, so nothing external requires a port rule — the default
-# zone stays closed to the app. Do not add a firewall-offline-cmd step.
+# No firewall step in this image (deliberate): the app port is opened by
+# the app_instance Ansible role at runtime (bake/runtime split). The image
+# stays closed; Ansible opens the port after the service is started.
 
 FROM corp-base:latest
 

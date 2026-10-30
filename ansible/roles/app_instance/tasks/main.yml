@@ -73,6 +73,13 @@
   # restart completes before any probe task runs, so the probes always
   # interrogate the process that read the current config.
 
+- name: Open application port in firewall
+  ansible.posix.firewalld:
+    port: "{{ app_port }}/tcp"
+    state: enabled
+    permanent: true
+    immediate: true
+
 - name: Wait for the health endpoint to report HTTP 200
   ansible.builtin.uri:
     url: "http://127.0.0.1:{{ app_port }}/health"

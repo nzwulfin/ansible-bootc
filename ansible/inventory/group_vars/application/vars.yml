@@ -15,10 +15,9 @@
 #   host = {{ db_host }}
 db_host: 192.168.122.10   # Must match db01.ansible_host in hosts.yml
 
-# Port for the application's health endpoint.
+# Port the application listens on (all interfaces — 0.0.0.0).
 #
-# The application binds this port on 127.0.0.1 (loopback) only — hardcoded in
-# corp-app.py; no external firewall rule is needed or opened (G7, design-spec.md §6.3).
+# Opened in the firewall by the app_instance role at runtime.
 #
 # Interface agreements:
 #   - Must match [server] port in the config.ini written by app_instance/templates/config.ini.j2

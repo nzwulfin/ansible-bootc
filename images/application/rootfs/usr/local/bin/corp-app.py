@@ -32,10 +32,9 @@ CONFIG_PATH = "/etc/corp-app/config.ini"
 
 # The health endpoint is loopback-only by design: it is polled on the
 # host itself (by Ansible's uri check and by operators with curl) and
-# nothing external may reach it. This is why the image opens no
-# firewall port for the app. No config key configures this — it cannot
-# be.
-BIND_ADDRESS = "127.0.0.1"
+# all interfaces so the app is reachable from outside the VM.
+# The firewall port is opened by the app_instance Ansible role at runtime.
+BIND_ADDRESS = "0.0.0.0"
 
 # Short connect timeout so a failed database probe is reported in
 # seconds instead of hanging the request.
