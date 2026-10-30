@@ -6,11 +6,12 @@
 #   ansible-galaxy collection install -r requirements.yml
 
 collections:
-  # community.mysql: provides mysql_db (database creation), mysql_user (account management),
-  # and mysql_query (arbitrary SQL execution, used for schema and seed-row tasks)
+  # ansible.mariadb: provides mariadb_db (database creation), mariadb_user (account management),
+  # and mariadb_query (arbitrary SQL execution, used for schema and seed-row tasks)
   # used by the mysql_instance role to provision the MariaDB instance at runtime.
-  - name: community.mysql
-    version: ">=3.0.0"
+  # Replaces community.mysql, which drops MariaDB support in 6.0.0.
+  - name: ansible.mariadb
+    version: ">=6.0.0"
 
   # ansible.posix: provides authorized_key (SSH key management) and firewalld (firewall management)
   # used by the bootstrap_key_rotation role (authorized_key) and the mysql_instance role (firewalld).

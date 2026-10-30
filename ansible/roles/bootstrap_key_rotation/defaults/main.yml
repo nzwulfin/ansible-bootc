@@ -27,14 +27,9 @@ authorized_key_user: ansible
 # falls back to; the key file itself is generated, gitignored material.
 bootstrap_key_path: keys/id_bootstrap
 
-# Path to the bootstrap (PSK) public key file, relative to the ansible/
-# run directory (G11). Read by the rotation tasks via lookup('file', ...)
-# to remove the PSK entry. Overridden by the identically named value in
-# group_vars/all/vars.yml.
-bootstrap_pubkey_path: keys/id_bootstrap.pub
-
-# Path to the live management public key file, relative to the ansible/
-# run directory (G11). Read by the rotation tasks via lookup('file', ...)
-# to install the live key. Overridden by the identically named value in
-# group_vars/all/vars.yml.
-live_pubkey_path: keys/id_live.pub
+# Paths to key files resolved via playbook_dir so lookup('file', ...) works
+# correctly from both site.yml (playbook_dir = ansible/) and standalone
+# playbooks in playbooks/ (playbook_dir = ansible/playbooks/).
+# Overridden by identically named values in group_vars/all/vars.yml.
+bootstrap_pubkey_path: "{{ playbook_dir }}/../keys/id_bootstrap.pub"
+live_pubkey_path: "{{ playbook_dir }}/../keys/id_live.pub"

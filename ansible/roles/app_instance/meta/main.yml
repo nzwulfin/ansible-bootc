@@ -24,6 +24,6 @@ galaxy_info:
 dependencies:
   # No role-level dependencies. This role uses only ansible.builtin
   # modules (file, template, systemd, uri, assert); the collections
-  # community.mysql and ansible.posix in ansible/requirements.yml serve
+  # ansible.mariadb and ansible.posix in ansible/requirements.yml serve
   # the other roles and must be installed regardless.
   []

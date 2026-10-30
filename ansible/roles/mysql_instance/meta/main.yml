@@ -21,7 +21,7 @@ galaxy_info:
         - "10"
 
 dependencies:
-  # No role-level dependencies. The collections community.mysql and
+  # No role-level dependencies. The collections ansible.mariadb and
   # ansible.posix are declared in ansible/requirements.yml and must be
   # installed before this role is used.
   []

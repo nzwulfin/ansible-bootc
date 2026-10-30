@@ -27,7 +27,7 @@
   # before any community.mysql tasks attempt a connection.
 
 - name: Create application database
-  community.mysql.mysql_db:
+  ansible.mariadb.mariadb_db:
     name: "{{ app_db_name }}"
     state: present
     login_unix_socket: "{{ mariadb_socket }}"
@@ -35,7 +35,7 @@
   # socket — the correct path on a fresh install with no root password set.
 
 - name: Create application database user
-  community.mysql.mysql_user:
+  ansible.mariadb.mariadb_user:
     name: "{{ app_db_user }}"
     host: "{{ app_host_address }}"
     password: "{{ app_db_password }}"
@@ -51,7 +51,7 @@
   # this role's defaults or in any group-specific vault.
 
 - name: Create service_records schema (idempotent)
-  community.mysql.mysql_query:
+  ansible.mariadb.mariadb_query:
     login_unix_socket: "{{ mariadb_socket }}"
     login_db: "{{ app_db_name }}"
     query: >-
@@ -73,7 +73,7 @@
   # The application (§6.3) depends on exactly these three column names.
 
 - name: Check whether the bootstrap seed row already exists
-  community.mysql.mysql_query:
+  ansible.mariadb.mariadb_query:
     login_unix_socket: "{{ mariadb_socket }}"
     login_db: "{{ app_db_name }}"
     query: >-
@@ -89,7 +89,7 @@
   # INSERT that would accumulate duplicate bootstrap rows on every re-run.
 
 - name: Insert bootstrap seed row (only if not already present)
-  community.mysql.mysql_query:
+  ansible.mariadb.mariadb_query:
     login_unix_socket: "{{ mariadb_socket }}"
     login_db: "{{ app_db_name }}"
     query: >-

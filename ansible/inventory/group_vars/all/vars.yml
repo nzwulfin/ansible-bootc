@@ -14,12 +14,12 @@ ansible_user: ansible
 # Path to the bootstrap (PSK) public key file, relative to the ansible/ run directory (G11).
 # Read by the bootstrap_key_rotation role via lookup('file', ...) to remove the PSK entry.
 # The script scripts/generate-demo-keys.sh writes this file.
-bootstrap_pubkey_path: keys/id_bootstrap.pub
+bootstrap_pubkey_path: "{{ playbook_dir }}/../keys/id_bootstrap.pub"
 
-# Path to the live management public key file, relative to the ansible/ run directory (G11).
-# Read by the bootstrap_key_rotation role via lookup('file', ...) to install the live key.
+# Path to the live management public key file, resolved via playbook_dir so the file lookup
+# works correctly whether invoked via site.yml or a standalone playbook in playbooks/.
 # The script scripts/generate-demo-keys.sh writes this file.
-live_pubkey_path: keys/id_live.pub
+live_pubkey_path: "{{ playbook_dir }}/../keys/id_live.pub"
 
 # Application database name — shared between mysql_instance (creates the database) and
 # app_instance (writes the name into config.ini). Must be in all/ because group-scoped
