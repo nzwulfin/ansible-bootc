@@ -1,0 +1,37 @@
+# app/corp-app/requirements.txt — app-specific pinned Python extras
+#
+# PURPOSE
+# -------
+# This file declares only the Python libraries corp-app needs BEYOND the
+# corporate Python standard stack. It is installed by the app_deploy Ansible
+# role into the virtualenv at /opt/corp-app/venv.
+#
+# WHAT IS NOT LISTED HERE (and must never be added)
+# --------------------------------------------------
+# The corporate shared Python stack is baked into the application runtime
+# image (images/application/Containerfile, Section 6.2 of the design spec)
+# and is visible inside the virtualenv via --system-site-packages (G14, G15):
+#
+#   - SQLAlchemy      (ORM / DB abstraction layer)
+#   - Alembic         (schema migration tool)
+#   - Pydantic        (data validation)
+#   - python3-PyMySQL (MariaDB/MySQL driver)
+#   - python3-psycopg2 (PostgreSQL driver — baked for full corporate DB support)
+#
+# Adding any of these packages here would shadow the centrally-governed
+# versions baked in the image, violating the single-source-of-truth principle
+# (G15) and potentially introducing version skew between the migration tool
+# and the running service.
+#
+# ADDING APP-SPECIFIC EXTRAS
+# --------------------------
+# If corp-app requires a library not in the corporate stack, add it below
+# with an exact pinned version (==). Floating ranges (>=, ~=, latest) and
+# --upgrade are prohibited (G16). Pinning is the reproducibility guarantee.
+#
+# Example:
+#   requests==2.32.3
+#   urllib3==2.2.1
+#
+# Currently corp-app uses only the corporate stack and the Python standard
+# library — no additional dependencies are required.
