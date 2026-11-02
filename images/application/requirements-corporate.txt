@@ -1,0 +1,28 @@
+# Corporate Python data-abstraction layer — build-time pinned requirements.
+#
+# These packages complete Tier 3 of the corporate Python runtime bundle
+# (see images/application/Containerfile for the full bundle definition).
+# They are installed into system site-packages at image build time
+# (G9 bake-time exception; G16 exact pins).
+#
+# THIS IS THE SINGLE SOURCE OF TRUTH for the corporate data-abstraction
+# layer (G15). Downstream consumers (app venvs, app roles, app payloads)
+# MUST NOT re-install, shadow, or pin alternate versions of these packages.
+# App teams install only genuinely app-specific extras into their venv
+# (see app/corp-app/requirements.txt).
+#
+# Package rationale:
+#   sqlalchemy  ORM and SQL abstraction layer; the corporate standard for
+#               all relational DB access. Imported directly by the
+#               application payload (Section 6.3) and by Alembic migrations.
+#   alembic     Database schema migration tool built on SQLAlchemy. The
+#               app_release role invokes `alembic upgrade head` to apply
+#               the app-owned migration tree before starting the service
+#               (Section 8.4, Section 6.5).
+#   pydantic    Data validation library; used by the application payload
+#               for request body validation on POST /record (Section 6.3).
+#               Pinned to the v2 API — ensure app payload imports use the
+#               v2 interface (pydantic.BaseModel, etc.).
+sqlalchemy==2.0.38
+alembic==1.14.1
+pydantic==2.10.6
