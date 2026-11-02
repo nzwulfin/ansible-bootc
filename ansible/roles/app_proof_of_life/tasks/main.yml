@@ -1,231 +1,107 @@
 ---
 # app_proof_of_life — tasks/main.yml
 #
-# Demonstrates the system is genuinely working OVER THE NETWORK after a user has
-# deliberately exposed the application port via the firewall-exposure step in
-# 04_proof_of_life.yml.
+# Verifies the application is running and communicating with MariaDB.
+# Runs on the target application host over loopback (127.0.0.1:{{ app_port }}).
 #
-# ALL tasks in this role run from the CONTROL NODE (delegate_to: localhost) and
-# target http://{{ ansible_host }}:{{ app_port }}/... — the external IP of the
-# application host, not loopback. This is intentional and required (G19, §8.5):
-# the network path is what a real user or system would use, and it exercises the
-# firewall exposure that the app_release loopback gate deliberately did NOT prove.
-#
-# Task sequence (design-spec.md §8.5):
-#   1. Health over the network     — GET /health, assert 200 + database connected
+# Task sequence:
+#   1. Health probe                — GET /health, assert 200 + database connected
 #   2. Seed-visibility assertion   — GET /, assert 'ansible-bootstrap' in records
-#   3. Write verification          — POST /record, assert 201 + echoed record
+#   3. Write verification probe    — POST /record, assert 201 + echoed record
 #   4. Negative-path validation    — POST /record with {}, assert 400
 #
-# Constraints honoured:
-#   G9  — no OS package installation of any kind
-#   G17 — this role carries ALL functional verification removed from deployment;
-#          it is never imported by site.yml and never a deployment prerequisite
-#   G19 — runs over the NETWORK from the control node (delegate_to: localhost,
-#          URL built from ansible_host), NOT over loopback. The firewall-exposure
-#          step in 04_proof_of_life.yml must run first (Play 1 of that playbook);
-#          if the port is still closed, Task 1 will fail with a clear message.
-#
-# Non-idempotent probe notice (design-spec.md §7.11):
+# Non-idempotent probe notice:
 #   Task 3 (write verification) adds one row per playbook run. This is deliberate.
-#   Do NOT attempt to make it idempotent by deleting probe rows or checking for
-#   their existence before writing. The row accumulation is harmless and documents
-#   the verification history.
+#   Do NOT attempt to make it idempotent by deleting probe rows. Probe rows are
+#   harmless and document verification history.
 
-# ---------------------------------------------------------------------------
-# Task 1: Health probe over the network
-# ---------------------------------------------------------------------------
-# Connects from the CONTROL NODE to the app host's external IP and port.
-# If this succeeds, the firewall port is open and the application is reachable
-# from the network. If this fails while the app_release loopback gate passed,
-# the most likely cause is that the external firewall port was not opened (G19).
-# ---------------------------------------------------------------------------
-
-- name: Probe application health over the network
+- name: Wait for application health endpoint on loopback
   ansible.builtin.uri:
-    url: "http://{{ ansible_host }}:{{ app_port }}/health"
+    url: "http://127.0.0.1:{{ app_port }}/health"
     method: GET
     status_code: 200
     return_content: true
-  register: net_health
-  until: net_health.status | default(0) == 200
+  register: app_health
+  until: app_health.status | default(0) == 200
   retries: "{{ proof_health_retries }}"
   delay: "{{ proof_health_delay }}"
-  delegate_to: localhost
-  # G19: URL targets ansible_host (the app host's external/network IP), not
-  # 127.0.0.1. This is the path that exercises the firewall — it is NOT the
-  # same loopback path used by the app_release readiness gate.
-  #
-  # If the firewall port was not opened (i.e., the user skipped Play 1 of
-  # 04_proof_of_life.yml or opened the wrong port), this task will time out
-  # and then the assert below will report the lesson explicitly.
 
-- name: Assert health endpoint reports connected over the network
+- name: Assert health endpoint reports database connected
   ansible.builtin.assert:
     that:
-      - net_health.status == 200
-      - net_health.json.database == "connected"
+      - app_health.status == 200
+      - app_health.json.database == "connected"
     fail_msg: >-
-      NETWORK HEALTH CHECK FAILED — HTTP {{ net_health.status | default('no response') }},
-      database={{ net_health.json.database | default('unknown') }}.
-
-      Teaching moment (G19): If the on-host loopback check in app_release passed but
-      this network check fails, the most likely cause is that the external firewall
-      port ({{ app_port }}/tcp) was NOT opened on {{ ansible_host }}.
-
-      The service binds 0.0.0.0 and is reachable on loopback, but remains externally
-      unreachable until the port is deliberately opened. This is the expected post-release
-      default-deny posture.
-
-      Resolution: Run 04_proof_of_life.yml from the start so Play 1 (the firewall-exposure
-      step) executes before Play 2 (this role). Or open the port manually:
-        ansible -i inventory/hosts.yml application -m ansible.posix.firewalld \
-          -a "port={{ app_port }}/tcp state=enabled permanent=true immediate=true" \
-          --become
+      Health check failed: HTTP {{ app_health.status | default('no response') }},
+      database={{ (app_health.json | default({})).database | default('unknown') }}.
     success_msg: >-
-      Network health check passed: HTTP 200, database connected on
-      http://{{ ansible_host }}:{{ app_port }}/health.
-  delegate_to: localhost
+      Health check passed: HTTP 200, database connected on
+      http://127.0.0.1:{{ app_port }}/health.
 
-# ---------------------------------------------------------------------------
-# Task 2: Seed-visibility assertion
-# ---------------------------------------------------------------------------
-# Reads the root endpoint and asserts that the Alembic migration seed record
-# ('ansible-bootstrap') is present in the structured records array.
-#
-# This proves end-to-end:
-#   (a) The app_release role ran 'alembic upgrade head' successfully.
-#   (b) The seed row was inserted by the migration (design-spec.md §6.5).
-#   (c) The running service can read and return it in GET / output.
-#   (d) All of the above is visible OVER THE NETWORK from the control node.
-#
-# The assertion uses selectattr for a structured match on the 'message' field,
-# not a brittle raw-string search on the full JSON body.
-# ---------------------------------------------------------------------------
-
-- name: Fetch application root endpoint over the network
+- name: Fetch application root endpoint (GET /)
   ansible.builtin.uri:
-    url: "http://{{ ansible_host }}:{{ app_port }}/"
+    url: "http://127.0.0.1:{{ app_port }}/"
     method: GET
     status_code: 200
     return_content: true
-  register: net_root
-  delegate_to: localhost
+  register: app_root
 
-- name: Assert Alembic migration seed is visible in records
+- name: Assert seed record is visible in GET / response
   ansible.builtin.assert:
     that:
-      - net_root.status == 200
-      - net_root.json.records | selectattr('message', 'equalto', proof_seed_message) | list | length > 0
+      - app_root.status == 200
+      - app_root.json.records | selectattr('message', 'equalto', proof_seed_message) | list | length > 0
     fail_msg: >-
-      Seed record '{{ proof_seed_message }}' was NOT found in GET / records
-      (HTTP {{ net_root.status | default('no response') }}).
-
-      This means one of:
-        (a) The Alembic initial migration has not been applied (app_release has not run).
-        (b) The migration ran but the seed insert failed or was rolled back.
-        (c) The app cannot read the record from the database.
-
-      Check: run 03_app_release.yml and inspect 'alembic upgrade head' output.
-      The migration at design-spec.md §6.5 must insert exactly one row with
-      message='{{ proof_seed_message }}' idempotently.
+      GET / did not contain the expected seed record
+      (message='{{ proof_seed_message }}') in the records array.
     success_msg: >-
-      Seed record '{{ proof_seed_message }}' is visible in GET / response over the network.
-      Migration reached the data layer and the app returns it correctly.
-  delegate_to: localhost
+      Seed record '{{ proof_seed_message }}' is present in GET / response.
+      Database connectivity and migration seed verified.
 
-# ---------------------------------------------------------------------------
-# Task 3: Write verification (POST /record)
-# ---------------------------------------------------------------------------
-# Posts a recognizable verification message and asserts the API echoes it back
-# with a new id and created_at timestamp — confirming the full write path works
-# over the network.
-#
-# NON-IDEMPOTENT PROBE (design-spec.md §7.11, §8.5):
-#   Each run of this task inserts one additional row with message='ansible-proof-of-life'.
-#   This is intentional and documented. Do NOT:
-#     - Delete probe rows after insertion.
-#     - Check for prior probe rows and skip insertion.
-#     - Make this task conditional on the absence of prior probe rows.
-#   The row accumulation is harmless. Probe rows document verification history.
-# ---------------------------------------------------------------------------
-
-- name: Post write-verification record over the network
+- name: Submit POST /record write-verification probe
   ansible.builtin.uri:
-    url: "http://{{ ansible_host }}:{{ app_port }}/record"
+    url: "http://127.0.0.1:{{ app_port }}/record"
     method: POST
     body_format: json
     body:
       message: "{{ proof_verify_message }}"
     status_code: 201
     return_content: true
-  register: net_write
-  delegate_to: localhost
-  # Each run adds exactly one row to service_records with the proof_verify_message
-  # value. Re-running the playbook accumulates rows. This is the expected and
-  # documented behaviour — do not treat it as a defect or attempt to suppress it.
+  register: app_write
 
-- name: Assert write-verification record was created correctly
+- name: Assert write-verification response echoes inserted record
   ansible.builtin.assert:
     that:
-      - net_write.status == 201
-      - net_write.json.message == proof_verify_message
-      - net_write.json.id is defined
-      - net_write.json.created_at is defined
+      - app_write.status == 201
+      - app_write.json.message == proof_verify_message
+      - app_write.json.id is defined
+      - app_write.json.created_at is defined
     fail_msg: >-
-      Write verification FAILED — HTTP {{ net_write.status | default('no response') }}.
-      Expected 201 with echoed record (id, message, created_at).
-      Got: {{ net_write.json | default({}) }}
-
-      This indicates the POST /record endpoint is not functioning correctly over
-      the network. Check corp-app.service logs: journalctl -u corp-app --no-pager -n 50
+      POST /record write-verification failed:
+      status={{ app_write.status | default('unknown') }},
+      body={{ app_write.content | default('unavailable') }}.
     success_msg: >-
-      Write verification passed: POST /record returned 201 with record
-      id={{ net_write.json.id }}, message='{{ net_write.json.message }}',
-      created_at={{ net_write.json.created_at }}.
-      (One new probe row added — this is expected non-idempotent behaviour.)
-  delegate_to: localhost
+      Write verification passed: POST /record returned 201 with
+      id={{ app_write.json.id | default('?') }},
+      message='{{ app_write.json.message | default('?') }}'.
+      Application has confirmed write access to the database.
 
-# ---------------------------------------------------------------------------
-# Task 4: Negative-path validation
-# ---------------------------------------------------------------------------
-# Sends a malformed (empty body) POST to /record and asserts the API rejects it
-# with HTTP 400 — proving the Pydantic validation layer is functioning and that
-# the app enforces its input contract over the network.
-#
-# This task does NOT register a write because status_code: 400 is the SUCCESS
-# condition here. If the application accepts the malformed body and returns 2xx,
-# the assertion below will catch it.
-# ---------------------------------------------------------------------------
-
-- name: Post malformed record to verify negative-path rejection
+- name: Submit malformed POST /record (negative validation)
   ansible.builtin.uri:
-    url: "http://{{ ansible_host }}:{{ app_port }}/record"
+    url: "http://127.0.0.1:{{ app_port }}/record"
     method: POST
     body_format: json
     body: {}
     status_code: 400
     return_content: true
-  register: net_neg
-  delegate_to: localhost
-  # An empty body {} is missing the required 'message' field.
-  # Per design-spec.md §6.3, the app must validate with Pydantic and return
-  # HTTP 400 with a JSON error body. No write must occur.
-  # status_code: 400 tells the uri module that 400 is the expected outcome —
-  # it will NOT raise an error when the server returns 400.
+  register: app_neg
 
 - name: Assert malformed request was rejected with HTTP 400
   ansible.builtin.assert:
     that:
-      - net_neg.status == 400
+      - app_neg.status == 400
     fail_msg: >-
-      Negative-path validation FAILED — expected HTTP 400 for malformed body {},
-      got HTTP {{ net_neg.status | default('no response') }}.
-
-      If the server returned 2xx, it accepted a body missing the required 'message'
-      field, which means Pydantic validation is not active or is incorrectly configured.
-      Check the app source and the Pydantic model for the POST /record handler.
+      Malformed request was not rejected with 400:
+      status={{ app_neg.status | default('unknown') }}.
     success_msg: >-
-      Negative-path check passed: malformed POST /record body {} correctly
-      rejected with HTTP 400. Pydantic validation is functioning over the network.
-  delegate_to: localhost
+      Input validation passed: malformed request correctly rejected with HTTP 400.

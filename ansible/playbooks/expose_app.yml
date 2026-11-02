@@ -1,0 +1,33 @@
+---
+# ansible/playbooks/expose_app.yml
+#
+# Deliberate, operator-invoked firewall exposure (G19 teaching moment).
+#
+# NOT imported by site.yml — this is NOT a deployment prerequisite.
+# It is an explicit operational decision to open the application port
+# to external network traffic after deployment and release are complete.
+#
+# Before running this playbook:
+#   - app_release.yml left the service running and verified on loopback (127.0.0.1).
+#   - Default-deny keeps the host closed; external calls (e.g. from your workstation) fail.
+#
+# After running this playbook:
+#   - Port {{ app_port }}/tcp is open in firewalld (permanent + immediate).
+#   - The application is reachable from the network.
+#   - External clients and browser/curl can reach the application.
+#
+# Run from the ansible/ directory (G11):
+#   ansible-playbook playbooks/expose_app.yml
+
+- name: Expose application port in firewall (deliberate operational step)
+  hosts: application
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Open application port in firewall
+      ansible.posix.firewalld:
+        port: "{{ app_port }}/tcp"
+        state: enabled
+        permanent: true
+        immediate: true

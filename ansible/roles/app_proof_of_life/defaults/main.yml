@@ -2,14 +2,11 @@
 # app_proof_of_life role defaults
 #
 # Overridable operational knobs for the optional network verification exercise
-# (design-spec.md §8.5). This role is invoked exclusively by 04_proof_of_life.yml,
+# (design-spec.md §8.5). This role is invoked by proof_of_life.yml,
 # never by site.yml or any deployment play (G17).
 #
-# All tasks in this role run on the CONTROL NODE (delegate_to: localhost) and
-# connect to the application over the NETWORK using the app host's external IP
-# (ansible_host) and app_port. This exercises the real external path — the same
-# path a user or another system would use — after the deliberate firewall-exposure
-# step in 04_proof_of_life.yml opens the port (G19).
+# Tasks in this role run on the application host over loopback to verify that
+# the application is healthy, reading from MariaDB, and writing to MariaDB.
 #
 # Variable precedence reminder:
 #   group_vars > role defaults. For hosts in the 'application' group,

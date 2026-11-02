@@ -110,11 +110,12 @@ ansible-bootc/
     ├── keys/                         ← generated key material only; no scripts
     │   └── .gitignore
     ├── playbooks/
-    │   ├── 00_bootstrap.yml          ← platform: PSK → live key onboarding
-    │   ├── 01_database.yml           ← DBA: DB foundation only (no schema/seed)
-    │   ├── 02_app_deploy.yml         ← app team play 1: deploy payload/venv/config/unit
-    │   ├── 03_app_release.yml        ← app team play 2: migrate + start + readiness gate
-    │   └── 04_proof_of_life.yml      ← optional user exercise: functional verification
+    │   ├── bootstrap.yml             ← platform: PSK → live key onboarding
+    │   ├── database.yml              ← DBA: DB foundation only (no schema/seed)
+    │   ├── app_deploy.yml            ← app team play 1: deploy payload/venv/config/unit
+    │   ├── app_release.yml           ← app team play 2: migrate + start + readiness gate
+    │   ├── proof_of_life.yml         ← optional user exercise: on-host verification
+    │   └── expose_app.yml            ← optional user action: open firewall port
     └── roles/
         ├── bootstrap_key_rotation/
         ├── mysql_instance/           ← DB foundation (infra), schema-free
@@ -642,16 +643,15 @@ collection dependency.
 sequence.
 
 **Must declare:** `import_playbook` statements, in order, for the four deployment phases:
-`playbooks/00_bootstrap.yml`, `playbooks/01_database.yml`, `playbooks/02_app_deploy.yml`,
-`playbooks/03_app_release.yml`.
+`playbooks/bootstrap.yml`, `playbooks/database.yml`, `playbooks/app_deploy.yml`,
+`playbooks/app_release.yml`.
 
-**Must not do:** Import `playbooks/04_proof_of_life.yml`. Proof-of-life is an optional,
-user-invoked verification exercise, never a deployment step (G17). It is run separately and
-documented as such. A header comment must state this explicitly, alongside the standalone
-vs. AAP job-template split.
+**Must not do:** Import `playbooks/proof_of_life.yml` or `playbooks/expose_app.yml`. These are
+optional, user-invoked operational and verification playbooks (G17). They are run separately, by
+hand, after deployment.
 
 Include a header comment explaining the ownership of each phase (platform → DBA → app team ×2)
-and that `04_proof_of_life.yml` is run by hand after deployment.
+and that `proof_of_life.yml` and `expose_app.yml` are run by hand after deployment.
 
 ---
 
@@ -705,7 +705,7 @@ The config path `/etc/corp-app/config.ini` is **not** a variable (fixed by G12).
 
 ---
 
-### 7.7 `ansible/playbooks/00_bootstrap.yml`
+### 7.7 `ansible/playbooks/bootstrap.yml`
 
 **Purpose:** PSK probe → key rotation → live key verification. The single discrete onboarding unit. AAP-separable: this playbook runs with the bootstrap credential; workload playbooks run with the live credential.
 
@@ -725,6 +725,7 @@ The config path `/etc/corp-app/config.ini` is **not** a variable (fixed by G12).
 
 **Play 3 — Verify live key access:**
 - `hosts: all`, `gather_facts: false`.
+- Tagged with `live_key_verify` for AAP `--skip-tags` support.
 - No `ansible_ssh_private_key_file` override — uses `ansible.cfg` default (live key).
 - `ansible.builtin.ping`. This play fails loudly if any host is unreachable via the live key, providing the post-rotation check.
 
@@ -732,20 +733,20 @@ The config path `/etc/corp-app/config.ini` is **not** a variable (fixed by G12).
 
 ---
 
-### 7.8 `ansible/playbooks/01_database.yml` — DB foundation (DBA-owned)
+### 7.8 `ansible/playbooks/database.yml` — DB foundation (DBA-owned)
 
 **Must declare:** `hosts: database`, `gather_facts: true`, `become: true`, apply role `mysql_instance`.
 
 **Scope:** Database *foundation* only — DB, accounts, privileges, firewall narrowing. It
 creates **no** application schema and **no** seed data; those are app-team territory, applied
-by the app's Alembic migrations in `03_app_release` (G17, Section 6.5).
+by the app's Alembic migrations in `app_release` (G17, Section 6.5).
 
 Include a comment noting ownership (DBA team) and AAP usage: run as a separate job template
-with the live machine credential, after `00_bootstrap.yml` completes.
+with the live machine credential, after `bootstrap.yml` completes.
 
 ---
 
-### 7.9 `ansible/playbooks/02_app_deploy.yml` — app deploy (app-team play 1)
+### 7.9 `ansible/playbooks/app_deploy.yml` — app deploy (app-team play 1)
 
 **Must declare:** `hosts: application`, `gather_facts: true`, `become: true`, apply role `app_deploy`.
 
@@ -756,11 +757,11 @@ The service is **not** enabled/started here, migrations are **not** run here, an
 firewall port is **not** opened here (G17, G19).
 
 Include a comment: app-feature team ownership, play 1 of 2; AAP = part of the workload job
-(live credential), after `01_database.yml`.
+(live credential), after `database.yml`.
 
 ---
 
-### 7.10 `ansible/playbooks/03_app_release.yml` — app release / go-live (app-team play 2)
+### 7.10 `ansible/playbooks/app_release.yml` — app release / go-live (app-team play 2)
 
 **Must declare:** `hosts: application`, `gather_facts: true`, `become: true`, apply role `app_release`.
 
@@ -775,7 +776,26 @@ firewall-exposure step is a teaching moment documented in the README.
 
 ---
 
-### 7.11 `ansible/playbooks/04_proof_of_life.yml` — optional verification exercise (user-run)
+### 7.11 `ansible/playbooks/proof_of_life.yml` — optional on-host verification exercise (user-run)
+
+**Must declare:** Not imported by `site.yml` (G17). Run by hand on `hosts: application` to
+verify that the application is running and communicating with MariaDB over loopback:
+- `GET /health` — database connected
+- `GET /` — seed record visible in records
+- `POST /record` — live write verification probe
+- `POST /record` with `{}` — negative input validation
+
+Runs over loopback on the application host. Demonstrates that the application is fully
+functional and communicating with the database, even before external firewall exposure.
+
+---
+
+### 7.12 `ansible/playbooks/expose_app.yml` — optional external firewall exposure (user-run)
+
+**Must declare:** Not imported by `site.yml`. Run by hand on `hosts: application` with `become: true`.
+Explicitly opens `{{ app_port }}/tcp` in firewalld (`permanent: true`, `immediate: true`).
+This is the deliberate operational step that makes the service network-reachable from external
+clients (G19 teaching moment).
 
 **Must declare:** Not imported by `site.yml` (G17). Run by a user by hand after deployment.
 

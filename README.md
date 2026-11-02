@@ -260,11 +260,12 @@ ansible-bootc/
     │       └── application/vars.yml          db_host, app_port, app_root/app_venv/app_src/app_entrypoint
     ├── keys/                                 Generated key material — all gitignored
     ├── playbooks/
-    │   ├── 00_bootstrap.yml                  PSK probe → rotation → live key verify
-    │   ├── 01_database.yml                   DBA: DB foundation (no schema/seed)
-    │   ├── 02_app_deploy.yml                 App play 1: payload/venv/config/unit
-    │   ├── 03_app_release.yml                App play 2: migrate + start + readiness gate
-    │   └── 04_proof_of_life.yml              Optional: firewall-open + network verification
+    │   ├── bootstrap.yml                     PSK probe → rotation → live key verify
+    │   ├── database.yml                      DBA: DB foundation (no schema/seed)
+    │   ├── app_deploy.yml                    App play 1: payload/venv/config/unit
+    │   ├── app_release.yml                   App play 2: migrate + start + readiness gate
+    │   ├── proof_of_life.yml                 On-host verification: health, read, write
+    │   └── expose_app.yml                    Operator action: open external firewall port
     └── roles/
         ├── bootstrap_key_rotation/           PSK → live key rotation
         ├── mysql_instance/                   DB + account + firewall narrowing (schema-free)
@@ -542,65 +543,58 @@ credential), which requires placement in `all/` rather than any group-specific v
 ansible-playbook site.yml
 ```
 
-`site.yml` imports the four **deployment** playbooks in order (proof-of-life is deliberately
-excluded — it is a separate, optional exercise):
+`site.yml` imports the four deployment playbooks in sequence:
 
-1. `playbooks/00_bootstrap.yml` — PSK probe → key rotation → live key verify (platform)
-2. `playbooks/01_database.yml` — DB foundation: database, account, firewall narrowing (DBA; no schema/seed)
-3. `playbooks/02_app_deploy.yml` — app play 1: payload to `/opt/corp-app`, venv, pinned extras, config, unit (not started)
-4. `playbooks/03_app_release.yml` — app play 2: Alembic migrate (schema + seed), enable/start, loopback readiness gate
+1. `playbooks/bootstrap.yml` — PSK probe → key rotation → live key verify (platform)
+2. `playbooks/database.yml` — DB foundation: database, account, firewall narrowing (DBA; no schema/seed)
+3. `playbooks/app_deploy.yml` — app play 1: payload to `/opt/corp-app`, venv, pinned extras, config, unit (not started)
+4. `playbooks/app_release.yml` — app play 2: Alembic migrate (schema + seed), enable/start, loopback readiness gate
 
 **Or run individually:**
 
 ```bash
 # Working directory: ansible/
-ansible-playbook playbooks/00_bootstrap.yml
-ansible-playbook playbooks/01_database.yml
-ansible-playbook playbooks/02_app_deploy.yml
-ansible-playbook playbooks/03_app_release.yml
+ansible-playbook playbooks/bootstrap.yml
+ansible-playbook playbooks/database.yml
+ansible-playbook playbooks/app_deploy.yml
+ansible-playbook playbooks/app_release.yml
 ```
 
-### Step 8 — (Optional) Prove it is alive — and learn the firewall lesson
+### Step 8 — Test, Troubleshoot, and Expose
 
-After release, the service is running and healthy **on the host's loopback**, yet it is
-**unreachable from the network** — the firewall's default-deny zone has no app port open.
-This is intentional (see "Firewall architecture" in Practitioner Notes). Confirm it:
+Follow the operator workflow to experience the default-deny firewall posture:
 
-```bash
-# From the control node (over the network) — FAILS: port not open yet
-# (replace 192.168.122.20 with your app01 IP from hosts.yml)
-curl -s --max-time 5 http://192.168.122.20:8080/health || echo "unreachable (expected: default-deny)"
+1. **Attempt external curl (Expected to fail):**
+   ```bash
+   # From your control node terminal:
+   curl -s --max-time 3 http://app01:8080/health || echo "Blocked by firewall (Expected default-deny)"
+   ```
+   *The connection times out because the host's firewall is default-deny.*
 
-# On the application host (over loopback) — SUCCEEDS: the service genuinely works
-curl -s http://127.0.0.1:8080/health
-# Expected: {"database": "connected", "count": 1, "detail": "ok"}
-```
+2. **Verify app-to-database on the host (Proof of Life):**
+   Run the verification playbook against `app01` to confirm the application is healthy and actively communicating with MariaDB:
+   ```bash
+   # Working directory: ansible/
+   ansible-playbook playbooks/proof_of_life.yml
+   ```
+   *All checks succeed on-host over loopback (health connected, seed visible, live write probe, input validation).*
 
-The optional proof-of-life playbook performs the deliberate firewall-exposure step and then
-verifies the system **over the network** (health, seed visibility, a write, and input
-validation):
+3. **Troubleshoot the firewall:**
+   The application is healthy and talking to MariaDB, so why did external `curl` fail? The application host's firewall is default-deny and has not exposed port 8080.
 
-```bash
-# Working directory: ansible/  — NOT part of site.yml; run by hand
-ansible-playbook playbooks/04_proof_of_life.yml
-```
+4. **Expose the port:**
+   Run the operational exposure playbook to open port 8080:
+   ```bash
+   # Working directory: ansible/
+   ansible-playbook playbooks/expose_app.yml
+   ```
 
-After it runs, the same external call now succeeds:
-
-```bash
-# From the control node (over the network) — now SUCCEEDS
-curl -s http://192.168.122.20:8080/
-# Expected (abbreviated):
-# {"service": "corp-app", "status": "operational",
-#  "database": {"status": "connected", "name": "corpapp", "host": "192.168.122.10"},
-#  "count": 1, "records": [{"id": 1, "message": "ansible-bootstrap", ...}]}
-```
-
-The `ansible-bootstrap` record visible in `GET /` is the app-owned-bootstrap proof: the app's
-**Alembic migration** (run by `03_app_release`) created the `service_records` schema and seeded
-that row, and the application reads it over the network from the database host. The before/after
-`curl` contrast is the firewall lesson: *working* and *reachable* are two different states, and
-exposure is a deliberate, auditable act.
+5. **Test again from your workstation:**
+   Now external network traffic reaches the application:
+   ```bash
+   curl -s http://app01:8080/health | jq .
+   curl -s http://app01:8080/ | jq .
+   ```
 
 ---
 
@@ -1123,8 +1117,9 @@ third:
 | AAP Job | Playbook(s) | Machine credential |
 |---------|-------------|--------------------|
 | **Bootstrap** | `playbooks/00_bootstrap.yml` | Bootstrap credential (`ansible/keys/id_bootstrap`) |
-| **Workload** | `playbooks/01_database.yml` + `playbooks/02_app_deploy.yml` + `playbooks/03_app_release.yml` | Live credential (`ansible/keys/id_live`) |
-| **Proof-of-life (optional)** | `playbooks/04_proof_of_life.yml` | Live credential (`ansible/keys/id_live`) |
+| **Workload** | `playbooks/database.yml` + `playbooks/app_deploy.yml` + `playbooks/app_release.yml` | Live credential (`ansible/keys/id_live`) |
+| **Proof-of-life (optional)** | `playbooks/proof_of_life.yml` | Live credential (`ansible/keys/id_live`) |
+| **Firewall expose (optional)** | `playbooks/expose_app.yml` | Live credential (`ansible/keys/id_live`) |
 
 **Bootstrap job:** Uses the bootstrap private key. Plays 1 and 2 probe and rotate the
 PSK. Play 3 (live-key verify) uses the live key — but under AAP's single-credential
@@ -1185,13 +1180,15 @@ extra-vars log. Custom Credentials are preferred for secrets.
 ### Running site.yml standalone vs. under AAP
 
 ```
-Standalone:   cd ansible/ && ansible-playbook site.yml           (00 → 01 → 02 → 03)
-              cd ansible/ && ansible-playbook playbooks/04_proof_of_life.yml   (optional)
-AAP Job 1:    ansible-playbook playbooks/00_bootstrap.yml        (bootstrap credential)
-AAP Job 2:    ansible-playbook playbooks/01_database.yml         (live credential)
-              ansible-playbook playbooks/02_app_deploy.yml       (live credential, same job)
-              ansible-playbook playbooks/03_app_release.yml      (live credential, same job)
-AAP Job 3:    ansible-playbook playbooks/04_proof_of_life.yml    (live credential, optional)
+Standalone:   cd ansible/ && ansible-playbook site.yml
+              cd ansible/ && ansible-playbook playbooks/proof_of_life.yml   (verify on-host)
+              cd ansible/ && ansible-playbook playbooks/expose_app.yml      (open firewall)
+AAP Job 1:    ansible-playbook playbooks/bootstrap.yml   (bootstrap credential, --skip-tags live_key_verify)
+AAP Job 2:    ansible-playbook playbooks/database.yml    (live credential)
+              ansible-playbook playbooks/app_deploy.yml  (live credential, same job)
+              ansible-playbook playbooks/app_release.yml (live credential, same job)
+AAP Job 3:    ansible-playbook playbooks/proof_of_life.yml (live credential, optional)
+AAP Job 4:    ansible-playbook playbooks/expose_app.yml    (live credential, optional)
 ```
 
 No playbook files are changed between standalone and AAP operation. The only difference

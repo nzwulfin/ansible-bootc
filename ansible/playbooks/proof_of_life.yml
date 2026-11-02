@@ -1,0 +1,22 @@
+---
+# ansible/playbooks/proof_of_life.yml
+#
+# Optional, pure functional verification playbook (G17).
+# NOT imported by site.yml.
+#
+# Verifies that the application is running and communicating with MariaDB
+# by running functional checks on the application host over loopback:
+#   1. GET /health     — asserts HTTP 200 and database == "connected"
+#   2. GET /           — asserts Alembic-seeded 'ansible-bootstrap' record is visible
+#   3. POST /record    — live write-verification probe (adds one row per run; do NOT delete)
+#   4. POST /record {} — negative validation (asserts HTTP 400 rejection)
+#
+# Run from the ansible/ directory (G11):
+#   ansible-playbook playbooks/proof_of_life.yml
+
+- name: Verify application on host (proof of life)
+  hosts: application
+  gather_facts: false
+
+  roles:
+    - role: app_proof_of_life

@@ -62,11 +62,14 @@ sudo dnf install -y "${PACKAGES[@]}"
 # ---------------------------------------------------------------------------
 # libvirt NSS — enables hostname resolution for VMs by name
 # ---------------------------------------------------------------------------
-if grep -q '\blibvirt\b' /etc/nsswitch.conf; then
+if grep -q '\blibvirt_guest\b' /etc/nsswitch.conf; then
     echo "==> libvirt NSS already configured, skipping."
+elif grep -q '\blibvirt\b' /etc/nsswitch.conf; then
+    echo "==> Adding libvirt_guest to existing libvirt NSS config..."
+    sudo sed -i '/^hosts:/ s/\blibvirt\b/libvirt libvirt_guest/' /etc/nsswitch.conf
 else
     echo "==> Configuring libvirt NSS..."
-    sudo sed -i '/^hosts:/ s/\bfiles\b/files libvirt/' /etc/nsswitch.conf
+    sudo sed -i '/^hosts:/ s/\bfiles\b/files libvirt libvirt_guest/' /etc/nsswitch.conf
 fi
 
 # ---------------------------------------------------------------------------
