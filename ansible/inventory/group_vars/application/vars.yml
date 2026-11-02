@@ -7,20 +7,47 @@
 #
 # Interface agreement (design-spec.md §7.5, §9): this value MUST be identical to
 # db01's ansible_host in inventory/hosts.yml. If they diverge, the config.ini
-# written by app_instance will point at the wrong database host, and the application
+# written by app_deploy will point at the wrong database host, and the application
 # will fail to connect while reporting a misleading hostname in its health endpoint.
 #
-# Used by the app_instance role in the config.ini.j2 template:
+# Used by the app_deploy role in the config.ini.j2 template:
 #   [database]
 #   host = {{ db_host }}
 db_host: 192.168.122.10   # Must match db01.ansible_host in hosts.yml
 
 # Port the application listens on (all interfaces — 0.0.0.0).
 #
-# Opened in the firewall by the app_instance role at runtime.
-#
 # Interface agreements:
-#   - Must match [server] port in the config.ini written by app_instance/templates/config.ini.j2
-#   - Used by the app_instance role's URI health check:
+#   - Must match [server] port in the config.ini written by app_deploy/templates/config.ini.j2
+#   - Used by the app_release role's loopback readiness gate:
 #       http://127.0.0.1:{{ app_port }}/health
+#   - Used by the app_proof_of_life role for the firewall-exposure step and the network checks.
 app_port: 8080
+
+# ---------------------------------------------------------------------------
+# Application deployment standard variables (G14, design-spec.md §7.6)
+#
+# These variables define the deployment layout and are overridable so the
+# pattern is reusable across teams with different path conventions. The
+# defaults below implement the corporate standard (/opt/corp-app on bootc,
+# where /opt resolves under /var/opt — persistent, install-only, preserved
+# across bootc upgrade/rollback).
+# ---------------------------------------------------------------------------
+
+# Payload install root. On bootc /opt resolves under /var/opt (persistent, Ansible-owned).
+# No application code is baked into the image (G7, G14).
+app_root: "/opt/corp-app"
+
+# Virtualenv path inside the payload root. Created with --system-site-packages so the
+# baked corporate Python stack (SQLAlchemy, Alembic, Pydantic, DB drivers) is visible
+# inside the venv without re-installation (G14, G15).
+app_venv: "{{ app_root }}/venv"
+
+# Path to the application payload source tree (the app/corp-app/ tree, or a built artifact).
+# Resolved relative to inventory_dir so the path is correct whether the playbook
+# is invoked via site.yml, directly from playbooks/, or under AAP (G11).
+app_src: "{{ inventory_dir ~ '/../../app/corp-app' }}"
+
+# The ExecStart entrypoint the rendered corp-app.service unit invokes.
+# Points into the venv's interpreter so the corporate stack is on sys.path (G14, G15).
+app_entrypoint: "{{ app_venv }}/bin/python3 {{ app_root }}/src/main.py"

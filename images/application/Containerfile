@@ -1,68 +1,138 @@
-# Application bootc image — workload layer.
+# Application runtime image — reusable corporate Python runtime baseline.
 #
-# Derives from the locally built platform/security base image and adds the
-# application workload: the app runtime, the Python DB client, the minimal
-# application executable, and its systemd unit. The value of this image is
-# the bake-time/runtime division, not the application logic
-# (see docs/plan.md).
+# This image is the SINGLE SOURCE OF TRUTH for the corporate Python stack (G15).
+# It is a RUNTIME BASELINE owned by the app-platform/runtime team:
 #
-# BUILD ORDER REQUIREMENT: the base image must be built first
-# (podman build -t corp-base:latest images/base/, after running
-# scripts/generate-demo-keys.sh). The FROM tag below is that locally
-# built base tag — the same tag the database image uses.
+#   - Bakes NO application code, executable, or migration scripts (G7, G14)
+#   - Carries NO systemd unit for any workload (G7)
+#   - Opens NO firewall port — port exposure is an instance decision made at
+#     runtime by a human operator, deliberately separated as a teaching moment
+#     about default-deny posture (G19)
 #
-# G7 (service baked, NOT enabled): the unit is copied into the image but
-# this Containerfile never runs `systemctl enable corp-app`. The service
-# cannot start before its runtime config /etc/corp-app/config.ini
-# exists, and that file is written by Ansible (app_instance role) at
-# first contact. Enabling the unit at bake time would crash-loop a fresh
-# install before Ansible has run; Ansible performs the enable + start.
+# App-feature teams build ON this image via Ansible (app_deploy + app_release
+# roles). They install app-specific extras into /opt/corp-app/venv and render
+# /etc/systemd/system/corp-app.service at release time — nothing is baked here.
 #
-# G12 (config path agreement): the baked executable hardcodes
-# /etc/corp-app/config.ini; the Ansible template task writes the same
-# path; the unit's process (running as root) reads that same path.
-# Divergence between any two of the three silently breaks the app.
+# The absence of a rootfs/ directory is BY DESIGN: there is no filesystem
+# content to bake beyond what dnf and pip provide. (G7, G14)
 #
-# No firewall step in this image (deliberate): the app port is opened by
-# the app_instance Ansible role at runtime (bake/runtime split). The image
-# stays closed; Ansible opens the port after the service is started.
+# BUILD ORDER:
+#   scripts/generate-demo-keys.sh          # generate PSK and live keys
+#   podman build -t corp-base:latest images/base/
+#   podman build -t corp-app-img:latest images/application/
+#
+# Corporate Python standard baked here (G15 — single source of truth):
+#   Tier 1  Core runtime:          python3, python3-pip, python3-virtualenv,
+#                                  ca-certificates, tzdata
+#   Tier 2  Helpers & packaging:   git, tar, gzip, unzip, python3-setuptools,
+#                                  python3-wheel
+#   Tier 3  Corporate DB drivers + data-abstraction layer (corporate standard,
+#           not universally required by every Python app — see comments below):
+#             DB drivers:          python3-PyMySQL, python3-psycopg2
+#             Abstraction layer:   SQLAlchemy, Alembic, Pydantic
+#                                  (pinned via build-time pip from
+#                                   images/application/requirements-corporate.txt)
 
 FROM corp-base:latest
 
-# 1. Application runtime dependencies, installed and cleaned in a single
-#    layer. (G9: everything is baked at build time; no Ansible task ever
-#    runs a package manager at runtime.)
+# ─── Step 1: Install the RPM portion of the corporate Python bundle ───────────
 #
-#    python3          the app's runtime. Already present in the base
-#                     image, so this is a no-op; it is listed so the app
-#                     layer's runtime set is explicit and self-documenting.
-#    python3-PyMySQL  the application connects to the remote MariaDB
-#                     instance at runtime to serve the health endpoint;
-#                     a runtime dependency that must be baked (G9).
-#    curl             required for on-host operator inspection of loopback health endpoint
-#                     (curl -s http://127.0.0.1:8080/health); since G9 forbids
-#                     runtime installs, it must be baked.
+# All RPMs are installed and the cache is cleaned in a single layer to keep
+# the image lean (G9: bake-time only; no Ansible task may install OS packages
+# at runtime).
+#
+# ── Tier 1: Core runtime ──────────────────────────────────────────────────────
+#
+#   python3            The Python interpreter. Present in the base image;
+#                      listed explicitly so the corporate runtime set is
+#                      self-documenting and the full stack is visible in one
+#                      place (G15).
+#   python3-pip        pip: required for build-time pip installs (Tier 3 below)
+#                      and for Ansible's app_deploy role to install app-specific
+#                      extras into the virtualenv (G9 exception scope).
+#   python3-virtualenv virtualenv: used by app_deploy to create
+#                      /opt/corp-app/venv with --system-site-packages so the
+#                      baked corporate stack is visible without re-installation
+#                      (G14, G15).
+#   ca-certificates    TLS trust anchors; required for encrypted database
+#                      connections and any HTTPS traffic from the application.
+#   tzdata             Timezone data; required for correct timestamp handling
+#                      in SQLAlchemy's TIMESTAMP columns and the application's
+#                      datetime serialization.
+#
+# ── Tier 2: Helpers & packaging tooling ──────────────────────────────────────
+#
+#   git                Source control client; used by Ansible tasks that
+#                      deliver the payload from a git repository, and by pip
+#                      when installing editable or VCS-pinned packages.
+#   tar                Tape archive; required for payload delivery via
+#                      ansible.builtin.unarchive and pip source distributions.
+#   gzip               Compression; required alongside tar for .tar.gz payload
+#                      archives and pip source distributions.
+#   unzip              ZIP archive handler; required for pip wheel archives and
+#                      ZIP-format payload delivery.
+#   python3-setuptools setuptools build backend; required when building or
+#                      installing packages from source distributions.
+#   python3-wheel      Binary wheel format support; accelerates pip installs
+#                      and is required by C-extension packages such as
+#                      psycopg2.
+#
+# ── Tier 3: Corporate DB drivers (RPM-packaged portion) ──────────────────────
+#
+# NOTE: This tier is a CORPORATE STANDARD, not a universal Python baseline.
+#       Every application host carries these packages so that database
+#       connectivity is governed centrally (G15). App teams inherit this
+#       stack; they must NOT re-install, shadow, or pin alternate versions
+#       of any package in this tier (G15, G16).
+#
+#   python3-PyMySQL    Pure-Python MariaDB/MySQL driver. Required by:
+#                        - the ansible.mariadb collection modules (used at
+#                          runtime by the mysql_instance role on the DB host),
+#                        - the application's SQLAlchemy pymysql:// dialect.
+#   python3-psycopg2   PostgreSQL driver (C extension). Baked alongside
+#                      PyMySQL to signal a SINGLE corporate runtime that
+#                      standardises enterprise DB connectivity centrally
+#                      rather than per-app — both drivers are intentional
+#                      even when only one database engine is used in a given
+#                      deployment.
+#
+#   SQLAlchemy, Alembic, and Pydantic are NOT installed here as RPMs.
+#   On CentOS Stream 10 they are not packaged at the pinned corporate-
+#   standard versions. They are installed in Step 2 via build-time pip from
+#   the committed requirement set (images/application/requirements-corporate.txt).
+#
 RUN dnf install -y --nodocs \
         python3 \
+        python3-pip \
+        python3-virtualenv \
+        ca-certificates \
+        tzdata \
+        git \
+        tar \
+        gzip \
+        unzip \
+        python3-setuptools \
+        python3-wheel \
         python3-PyMySQL \
-        curl \
+        python3-psycopg2 \
     && dnf clean all
 
-# 2. Install all baked application content in one step. rootfs/ mirrors
-#    the target filesystem, so the build context is the documentation of
-#    what lands where on a deployed system:
+# ─── Step 2: Install the data-abstraction layer via build-time pip ────────────
 #
-#      usr/lib/systemd/system/corp-app.service  -> service unit (baked,
-#                                                  NOT enabled: G7)
-#      usr/local/bin/corp-app.py                -> application executable
+# SQLAlchemy, Alembic, and Pydantic complete the corporate Tier 3 standard.
+# They are installed at IMAGE BUILD TIME into system site-packages via pip —
+# this is a bake action, NOT a runtime action, so it is permitted (G9 covers
+# runtime package management; bake-time pip installs are outside that scope).
 #
-#    Everything lands under /usr (image-owned): it updates cleanly with
-#    the image. Nothing under /etc is shipped here — the runtime config
-#    /etc/corp-app/config.ini is written by Ansible only (G12).
-COPY rootfs/ /
-
-# 3. Final ownership and mode for the executable (Appendix B: root:root,
-#    0755). Executable by all; the unit runs it as root, so no user
-#    ownership is required.
-RUN chown root:root /usr/local/bin/corp-app.py \
-    && chmod 0755 /usr/local/bin/corp-app.py
+# Exact pinned versions are the corporate standard (G16). App venvs created
+# with --system-site-packages (G14) inherit these without re-installation (G15).
+# Downstream consumers (app_deploy, app_release roles, app payload) MUST NOT
+# re-install or pin alternate versions of these packages (G15).
+#
+# The pinned requirement set is committed at:
+#   images/application/requirements-corporate.txt
+#
+COPY requirements-corporate.txt /tmp/requirements-corporate.txt
+RUN pip3 install --no-cache-dir \
+        --requirement /tmp/requirements-corporate.txt \
+    && rm /tmp/requirements-corporate.txt

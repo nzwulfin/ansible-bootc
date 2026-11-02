@@ -1,0 +1,48 @@
+---
+# app_deploy — handlers/main.yml
+#
+# Handlers fire at end-of-play when notified by a changed task.
+# The 'Restart corp-app' notification is triggered by:
+#   - the config.ini template task  (config change)
+#   - the corp-app.service template task  (unit change)
+#
+# Two handlers share the same listen label so both execute in order when
+# the notification fires (design-spec.md §8.3 handler contract):
+#
+#   1. daemon_reload  — always runs when notified; ensures systemd sees the
+#      new or updated unit definition whether or not the service is active.
+#   2. service restart — conditional; only restarts if the service is already
+#      running (i.e., after app_release has enabled and started it).
+#
+# This two-step pattern guarantees:
+#   - First deployment:  daemon_reload runs; restart is skipped because the
+#     service has not been started by app_release yet (G7, G17).
+#   - Re-deployment:     daemon_reload + restart both run, picking up config
+#     or unit changes on an already-running service.
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+  listen: Restart corp-app
+
+- name: Restart corp-app service
+  ansible.builtin.systemd:
+    name: "{{ app_service_name }}"
+    state: restarted
+    daemon_reload: true
+  when: >-
+    ansible_facts.services is defined and
+    (ansible_facts.services[app_service_name ~ '.service']
+     | default({'state': 'stopped'})).state == 'running'
+  listen: Restart corp-app
+  # Conditional restart: only executes when the service is already active.
+  #
+  # On first deployment (before app_release runs): the service is in inactive
+  # state; this task is skipped, honouring G7 (unit is instance-owned, not
+  # baked) and G17 (app_deploy does not start the service).
+  #
+  # On re-deployment (after app_release has started the service): the service
+  # IS running; this task correctly restarts it to apply config or unit changes.
+  #
+  # ansible_facts.services is populated by the 'Gather service facts' task in
+  # tasks/main.yml at the start of the play.

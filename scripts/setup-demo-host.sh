@@ -29,8 +29,8 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
-IMG_DB=corp-database
-IMG_APP=corp-application
+IMG_DB=corp-db
+IMG_APP=corp-app-img
 DB_NAME="${IMG_DB}-image.qcow2"
 APP_NAME="${IMG_APP}-image.qcow2"
 LIBVIRT_IMAGES=/var/lib/libvirt/images

@@ -81,6 +81,12 @@
 - name: Verify live key access on all hosts
   hosts: all
   gather_facts: false
+  # AAP tag: under AAP's one-credential-per-job rule, the bootstrap job template
+  # runs with the bootstrap credential and skips this play via `--skip-tags live_key_verify`.
+  # Live-key verification is then performed by the workload job's first connection.
+  # Standalone runs (ansible-playbook 00_bootstrap.yml) run all plays unconditionally.
+  tags:
+    - live_key_verify
   # No ansible_ssh_private_key_file override: the ansible.cfg default
   # (keys/id_live) applies to this play. No ignore_unreachable either —
   # this play fails loudly if any host is unreachable via the live key,

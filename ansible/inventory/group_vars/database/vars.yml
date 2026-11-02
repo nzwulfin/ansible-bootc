@@ -12,6 +12,6 @@
 #   - The firewall rich rule will allow the wrong source address.
 #
 # Used by the mysql_instance role for:
-#   - community.mysql.mysql_user host: parameter (account host restriction)
+#   - ansible.mariadb.mariadb_user host: parameter (account host restriction)
 #   - ansible.posix.firewalld rich rule source address (runtime firewall narrowing)
 app_host_address: 192.168.122.20   # Must match app01.ansible_host in hosts.yml

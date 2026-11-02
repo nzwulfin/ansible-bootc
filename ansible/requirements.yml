@@ -6,10 +6,11 @@
 #   ansible-galaxy collection install -r requirements.yml
 
 collections:
-  # ansible.mariadb: provides mariadb_db (database creation), mariadb_user (account management),
-  # and mariadb_query (arbitrary SQL execution, used for schema and seed-row tasks)
-  # used by the mysql_instance role to provision the MariaDB instance at runtime.
-  # Replaces community.mysql, which drops MariaDB support in 6.0.0.
+  # ansible.mariadb: provides mariadb_db (database creation) and mariadb_user (account management
+  # and privilege grants), used by the mysql_instance role for the DB foundation (database +
+  # account + privileges). Schema is owned by the app's Alembic migrations, so mariadb_query is
+  # no longer required by the DB role. Replaces community.mysql, which drops MariaDB support in
+  # 6.0.0.
   - name: ansible.mariadb
     version: ">=6.0.0"
 

@@ -6,9 +6,14 @@
 # intentionally absent here — they are resolved from group_vars/all/ and
 # group_vars/database/ and must never be shadowed by a role default.
 #
+# Table names and seed messages are also absent: this role is DB foundation
+# only (database + account + firewall narrowing). Schema and seed data are
+# app-team territory, owned by Alembic migrations (app/corp-app/migrations/).
+#
 # Constraints honoured:
 #   G4  — app_db_password declared only in all/vault.yml; not here.
 #   G9  — no package installation; all dependencies baked in the database image.
+#   G17 — no mariadb_table_name or mariadb_seed_message; schema/seed not here.
 
 # Path to the MariaDB unix socket.
 # Root access on a fresh install uses the socket — no root password is set.
@@ -25,24 +30,15 @@ mariadb_socket_timeout: 60
 # removes it and adds a source-restricted rich rule in its place.
 mariadb_firewall_service: mysql
 
-# Privilege grant string applied to the application database account.
-# Scoped to the application database only; resolved at task time against
-# app_db_name which comes from group_vars/all/vars.yml.
-# The format follows community.mysql.mysql_user priv syntax:
-#   "<database>.*:<comma-separated privileges>"
-mariadb_user_priv_suffix: ".*:SELECT,INSERT,UPDATE,DELETE"
-
-# Name of the table that holds application records.
-# This value is fixed by the interface contract (design-spec.md §9, §6.3):
-# the application hardcodes the table name "service_records" in its SQL.
-# Changing this default without also updating corp-app.py breaks the interface
-# silently at runtime — treat this as documentation of the agreed value, not
-# a free operational knob.
-mariadb_table_name: service_records
-
-# Message value inserted as the bootstrap seed row.
-# The app_instance role (design-spec.md §8.3) asserts that this value is
-# visible in GET / responses, proving the Ansible-as-entrypoint pattern
-# delivered schema and seed data before the application started serving.
-# Must agree with app_instance's app_seed_message default (design-spec.md §9).
-mariadb_seed_message: ansible-bootstrap
+# Privilege grant string (suffix after the database name) applied to the
+# application database account. Scoped to the application database only;
+# resolved at task time against app_db_name from group_vars/all/vars.yml.
+#
+# Format follows ansible.mariadb.mariadb_user priv syntax:
+#   ".*:<comma-separated privileges>"   (appended to app_db_name)
+#
+# DELIBERATE OVER-GRANT: DML + DDL is granted so the app team owns their
+# schema end-to-end via Alembic migrations. The running service uses only
+# SELECT and INSERT. See the LOUD comment in tasks/main.yml for the full
+# rationale and the production split (migration account vs. runtime account).
+mariadb_user_priv_suffix: ".*:SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,DROP,INDEX"

@@ -1,0 +1,32 @@
+---
+# app_deploy — meta/main.yml
+#
+# Role metadata for dependency declaration and Galaxy publication details.
+
+galaxy_info:
+  role_name: app_deploy
+  author: ansible-bootc
+  description: >
+    Deploys the corporate application payload onto the runtime baseline:
+    installs the source tree to /opt/corp-app, creates a virtualenv with
+    system site-packages (making the baked corporate Python stack visible
+    without re-installation, G14/G15), installs app-specific pinned extras
+    from requirements.txt (G9/G16), renders /etc/corp-app/config.ini (G12),
+    and renders /etc/systemd/system/corp-app.service (G7). Does NOT start
+    the service or open any firewall port (that is app_release, G17/G19).
+  license: Apache-2.0
+  min_ansible_version: "2.14"
+
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+        - "10"
+
+dependencies:
+  # No role-level collection dependencies. All modules used by this role
+  # (ansible.builtin.file, ansible.builtin.copy, ansible.builtin.pip,
+  # ansible.builtin.template, ansible.builtin.systemd,
+  # ansible.builtin.service_facts) are in ansible.builtin and require no
+  # additional collection installation.
+  []

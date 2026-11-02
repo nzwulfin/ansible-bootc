@@ -1,5 +1,52 @@
 ---
-# Standalone master playbook. AAP environments run individual playbooks via Job Templates.
+# site.yml — Master playbook entrypoint for standalone deployment execution.
+#
+# This file runs the four deployment phases in sequence. Each phase maps to a
+# distinct team ownership boundary:
+#
+#   00_bootstrap.yml  — Platform / security team
+#                       PSK probe → key rotation → live-key verification.
+#                       Onboards a freshly provisioned host from the bootstrap
+#                       (PSK) credential to the live management credential.
+#
+#   01_database.yml   — DBA team
+#                       MariaDB foundation: creates the application database,
+#                       the application account with scoped privileges, and
+#                       narrows the baked-in firewall rule to the app host only.
+#                       Schema and seed data are NOT created here — those are
+#                       app-team territory, applied via Alembic in 03_app_release.
+#
+#   02_app_deploy.yml — App-feature team (play 1 of 2)
+#                       Installs the application payload to /opt/corp-app, creates
+#                       the virtualenv with system site-packages, installs pinned
+#                       extras, renders /etc/corp-app/config.ini and the
+#                       /etc/systemd/system/corp-app.service unit.
+#                       The service is NOT enabled or started here.
+#
+#   03_app_release.yml — App-feature team (play 2 of 2)
+#                       Runs the app's Alembic migrations (schema + seed row),
+#                       enables and starts corp-app, then confirms the service
+#                       came up via a single loopback readiness gate on /health.
+#
+# NOTE — 04_proof_of_life.yml is NOT imported here (G17, design-spec.md §7.4).
+# Proof-of-life is an optional, user-invoked verification exercise that also
+# opens the external firewall port as a deliberate teaching moment (G19). It is
+# run separately, by hand, after deployment:
+#   cd ansible/
+#   ansible-playbook playbooks/04_proof_of_life.yml
+#
+# Standalone usage (all four phases, from the ansible/ directory — G11):
+#   cd ansible/
+#   ansible-playbook site.yml
+#
+# AAP usage:
+#   Run as separate job templates (one per playbook, or bootstrap + workload split):
+#     - Bootstrap job:  00_bootstrap.yml  (bootstrap machine credential)
+#     - Workload job:   01_database.yml + 02_app_deploy.yml + 03_app_release.yml
+#                       (live machine credential)
+#   04_proof_of_life.yml is a separate, optional AAP job (live credential).
+
 - import_playbook: playbooks/00_bootstrap.yml
 - import_playbook: playbooks/01_database.yml
-- import_playbook: playbooks/02_application.yml
+- import_playbook: playbooks/02_app_deploy.yml
+- import_playbook: playbooks/03_app_release.yml

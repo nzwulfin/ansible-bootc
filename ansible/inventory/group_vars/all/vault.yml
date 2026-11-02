@@ -11,8 +11,8 @@
 # Global constraint G4: app_db_password is declared ONLY in this file.
 # It must not appear in any group-specific vault file, any role default,
 # or any plaintext file. Both the mysql_instance role (which creates the
-# MariaDB account) and the app_instance role (which writes config.ini)
-# resolve this variable from this single location.
+# MariaDB account) and the app_deploy / app_release roles (which write config.ini
+# and run Alembic migrations) resolve this variable from this single location.
 #
 # Under AAP: replace this vault file with an AAP custom credential or
 # survey variable. The variable name (app_db_password) must remain identical

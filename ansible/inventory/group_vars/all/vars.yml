@@ -22,11 +22,11 @@ bootstrap_pubkey_path: "{{ playbook_dir }}/../keys/id_bootstrap.pub"
 live_pubkey_path: "{{ playbook_dir }}/../keys/id_live.pub"
 
 # Application database name — shared between mysql_instance (creates the database) and
-# app_instance (writes the name into config.ini). Must be in all/ because group-scoped
-# variables are not visible across groups (design-spec.md §7.6).
+# app_deploy / app_release (renders config.ini and runs Alembic migrations). Must be in all/
+# because group-scoped variables are not visible across groups (design-spec.md §7.6).
 app_db_name: corpapp
 
 # Application database account name — shared between mysql_instance (creates the account)
-# and app_instance (writes the username into config.ini). Same cross-group visibility
-# requirement as app_db_name.
+# and app_deploy / app_release (renders config.ini and runs Alembic migrations). Same cross-group
+# visibility requirement as app_db_name.
 app_db_user: corpapp_user
