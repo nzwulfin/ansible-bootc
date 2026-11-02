@@ -641,11 +641,15 @@ rebuild + `bootc upgrade`, governed by the runtime team — not an ad-hoc per-ho
 ### Standard deployment target: `/opt/corp-app`
 
 Applications deploy to `/opt/corp-app`, with the virtualenv at `/opt/corp-app/venv`, config at
-`/etc/corp-app/config.ini`, and the unit at `/etc/systemd/system/corp-app.service`. On bootc,
-`/opt` resolves under `/var/opt` — persistent, applied at install only, preserved across upgrade and
-rollback — which is exactly the right zone for Ansible-owned instance payload, just like
-`/var/lib/mysql`. This is the expected, conventional Linux place for add-on application software,
-and it keeps the image (`/usr`, immutable) cleanly separate from the app (instance state).
+`/etc/corp-app/config.ini`, and the unit at `/etc/systemd/system/corp-app.service`.
+
+**How bootc handles `/opt` cleanly:** In bootc the root filesystem (`/`) is mounted read-only.
+Rather than modifying the system-level `/opt` root directory, the application runtime image
+follows the documented bootc pattern ("symlink just the parts of `/opt` needed into `/var`"):
+it creates `/var/opt/corp-app` on persistent storage and links `/opt/corp-app -> /var/opt/corp-app`.
+This gives Ansible a writable, persistent deployment target on `/var` that survives upgrades and
+rollbacks (just like `/var/lib/mysql`) while preserving standard FHS path expectations for
+systemd and operators without any root filesystem workarounds.
 
 ### Deploy vs. release vs. proof-of-life
 

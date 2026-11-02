@@ -131,3 +131,11 @@ COPY requirements-corporate.txt /tmp/requirements-corporate.txt
 RUN pip3 install --no-cache-dir \
         --requirement /tmp/requirements-corporate.txt \
     && rm /tmp/requirements-corporate.txt
+
+# ─── Step 3: Application host directory in /var exposed via /opt ──────────────
+#
+# On bootc, the root filesystem (/) is mounted read-only while /var is persistent
+# and writable. Rather than modifying the system /opt directory, symlink just the
+# specific application subdirectory into /var/opt (the recommended bootc pattern)
+# so that Ansible can deploy the payload to /opt/corp-app on persistent storage.
+RUN mkdir -p /var/opt/corp-app && ln -s /var/opt/corp-app /opt/corp-app
