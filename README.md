@@ -221,6 +221,7 @@ ansible-bootc/
 │   ├── plan.md                               Requirements and design decisions
 │   └── design-spec.md                        Technical design specification
 ├── scripts/
+│   ├── setup-demo-host.sh                    Automated local demo setup (host packages, libvirt, VMs)
 │   └── generate-demo-keys.sh                 MUST run before any image build
 ├── images/
 │   ├── base/
@@ -373,7 +374,9 @@ WARN: Image contains content under /var — bootc expects /var to be managed at
       runtime by the host, not baked into the image.
 ```
 
-**This warning is intentional, not a defect.** The PSK must live under `/var` because
+**This warning is intentional, not a defect.** (Note: exact phrasing varies across
+`bootc container lint` toolchain releases; any warning flagging files or content under `/var`
+references this intentional PSK placement). The PSK must live under `/var` because
 that is the only bootc filesystem zone with "applied at initial install only, never
 re-applied on upgrade" semantics — exactly what the first-contact-only lifecycle
 requires. The alternatives (tmpfiles.d `f~` entry, `/etc` with Ansible cleanup) all
@@ -421,6 +424,13 @@ ERROR: Keys already exist in ansible/keys/.
 ## 5. Setup and Execution
 
 All steps from a fresh checkout to a running system, in order.
+
+> **💡 Fast Path (Automated Local Demo):** If you are running on a local RHEL/CentOS KVM host
+> with libvirt, `bash scripts/setup-demo-host.sh` automates Steps 1 through 4: host packages,
+> keys, vault generation, image builds, qcow2 conversion, VM launch, and auto-populating
+> `hosts.yml` with the dynamic DHCP IPs. You can then jump directly to **Step 5**.
+> The manual walkthrough below explains what the script does and is the canonical procedure
+> for non-libvirt environments.
 
 ### Step 1 — Generate the demo key pairs
 
@@ -558,7 +568,8 @@ This is intentional (see "Firewall architecture" in Practitioner Notes). Confirm
 
 ```bash
 # From the control node (over the network) — FAILS: port not open yet
-curl -s --max-time 5 http://192.0.2.20:8080/health || echo "unreachable (expected: default-deny)"
+# (replace 192.168.122.20 with your app01 IP from hosts.yml)
+curl -s --max-time 5 http://192.168.122.20:8080/health || echo "unreachable (expected: default-deny)"
 
 # On the application host (over loopback) — SUCCEEDS: the service genuinely works
 curl -s http://127.0.0.1:8080/health
@@ -578,10 +589,10 @@ After it runs, the same external call now succeeds:
 
 ```bash
 # From the control node (over the network) — now SUCCEEDS
-curl -s http://192.0.2.20:8080/
+curl -s http://192.168.122.20:8080/
 # Expected (abbreviated):
 # {"service": "corp-app", "status": "operational",
-#  "database": {"status": "connected", "name": "corpapp", "host": "192.0.2.10"},
+#  "database": {"status": "connected", "name": "corpapp", "host": "192.168.122.10"},
 #  "count": 1, "records": [{"id": 1, "message": "ansible-bootstrap", ...}]}
 ```
 
@@ -1061,6 +1072,16 @@ The reference inventory (`ansible/inventory/hosts.yml`) uses static IP addresses
 In production, replace static addresses with DNS names or use a dynamic inventory
 plugin. The playbooks and roles require no changes — only the inventory source changes.
 
+### Troubleshooting common failure modes
+
+| Symptom | Root Cause | Resolution |
+|---|---|---|
+| **Play 1 in `00_bootstrap.yml` reports `unreachable=1` on fresh VM** | PSK mismatch or SSH perms: keys regenerated after base image was built, or file permissions on `authorized_keys` are not `0600 (5000:5000)` | Rebuild `corp-base` after running `scripts/generate-demo-keys.sh`. Verify `id_bootstrap.pub` matches the baked PSK line. Check `bootc status` on the VM console. |
+| **`01_database.yml` fails with "app_db_password is still set to default placeholder"** | Vault file was encrypted without editing the placeholder password | Decrypt `ansible-vault decrypt inventory/group_vars/all/vault.yml`, set a strong password, and re-encrypt. |
+| **`01_database.yml` times out waiting for MariaDB socket** | MariaDB failed first-boot self-initialization or SELinux issue | Inspect target console: `journalctl -u mariadb -b`. Verify `00-corporate.cnf` syntax and disk space on `/var/lib/mysql`. |
+| **External `curl http://<app01>:8080/` times out or Connection Refused** | Normal post-release default-deny state (**G19 teaching moment**); loopback works but port is closed | Run `ansible-playbook playbooks/04_proof_of_life.yml` to execute Play 1's firewall-open step, or manually run `ansible -m ansible.posix.firewalld -a "port=8080/tcp state=enabled permanent=true immediate=true" -b app01`. |
+| **`bootc upgrade` shows `/etc` conflict or local modifications** | Local hand-edits made to 3-way merge files (`/etc/my.cnf.d/`, `/etc/corp-app/`) conflicting with updated image | On conflict, bootc preserves the machine-local file and saves `.rpmnew`/`.rpmsave`. Reconcile with `bootc status` and re-run Ansible to re-converge. |
+
 ### Security non-additions: deliberate decisions
 
 The following things are **not** in this project, and that is intentional:
@@ -1103,10 +1124,11 @@ third:
 
 **Bootstrap job:** Uses the bootstrap private key. Plays 1 and 2 probe and rotate the
 PSK. Play 3 (live-key verify) uses the live key — but under AAP's single-credential
-constraint only the bootstrap key is available in this job. For that reason, **Play 3's
-live-key verification is handled by the workload job's first connection** rather than
+constraint only the bootstrap key is available in this job. For that reason, configure the
+Bootstrap Job Template with `--skip-tags live_key_verify` (Play 3 carries this tag).
+**Play 3's live-key verification is then handled by the workload job's first connection** rather than
 inside the bootstrap job. The bootstrap job's responsibility ends when the PSK is
-successfully rotated out.
+successfully rotated out in Play 2.
 
 **Workload job:** Uses the live private key. Runs `01_database.yml`, then `02_app_deploy.yml`,
 then `03_app_release.yml`. No PSK is referenced in these playbooks. The workload job's first

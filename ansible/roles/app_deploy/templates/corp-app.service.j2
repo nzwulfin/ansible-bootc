@@ -22,9 +22,10 @@ ExecStart={{ app_entrypoint }}
 Restart=on-failure
 StandardOutput=journal
 StandardError=journal
-# Lightweight sandboxing — compatible with the payload under /opt/corp-app
-# (resolves to /var/opt on bootc — writable) and read-only access to
-# /etc/corp-app/config.ini:
+# Lightweight sandboxing — ProtectSystem=strict mounts the entire filesystem
+# read-only (including /var/opt and /etc). The service runs cleanly because
+# it only reads config and state; if a workload requires write access to a
+# specific path, add a `ReadWritePaths=` drop-in via systemctl edit:
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

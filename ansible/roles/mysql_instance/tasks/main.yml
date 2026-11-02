@@ -26,6 +26,15 @@
 #   G17 — no schema creation (CREATE TABLE) or seed inserts (INSERT INTO);
 #          those are app-team territory via Alembic migrations (app_release).
 
+- name: Verify app_db_password has been changed from default placeholder
+  ansible.builtin.assert:
+    that:
+      - app_db_password != "REPLACE_ME_WITH_A_STRONG_PASSWORD"
+    fail_msg: >-
+      app_db_password is still set to the default placeholder string
+      in ansible/inventory/group_vars/all/vault.yml. Edit that file
+      to set a real password, then encrypt it with ansible-vault.
+
 - name: Wait for MariaDB unix socket to be present
   ansible.builtin.wait_for:
     path: "{{ mariadb_socket }}"
