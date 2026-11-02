@@ -1,7 +1,15 @@
 ---
 # ansible/playbooks/01_database.yml
 #
-# Provisions the MariaDB instance on the database host group.
+# DBA-owned: DB foundation only — creates the application database, the
+# application account with host-restricted privileges, and narrows the firewall
+# from the image-baked broad mysql service to a source-restricted rich rule.
+#
+# SCOPE: Foundation only. This playbook applies NO schema (CREATE TABLE) and NO
+# seed data (INSERT INTO). Schema and seed are app-team territory, owned by the
+# app's Alembic migrations and applied by 03_app_release.yml. See also:
+#   app/corp-app/migrations/    ← authoritative schema definition
+#   design-spec.md §8.2, §12 Task 7
 #
 # Standalone usage (run from the ansible/ directory — G11):
 #   ansible-playbook playbooks/01_database.yml
@@ -19,8 +27,10 @@
 #         into the database image.
 #   G11 — designed to run from the ansible/ directory; all paths in ansible.cfg
 #         are relative to that directory.
+#   G17 — deployment plays do not create schema or seed data; those are
+#         applied by the app team in 03_app_release.yml.
 
-- name: Provision MariaDB instance
+- name: Provision MariaDB instance (DB foundation)
   hosts: database
   gather_facts: true
   become: true

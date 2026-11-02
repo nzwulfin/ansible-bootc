@@ -1,11 +1,17 @@
 ---
 # mysql_instance — tasks/main.yml
 #
-# Provisions MariaDB for runtime use:
+# Provisions the MariaDB *foundation* for runtime use:
 #   1. Wait for the unix socket (proves service is up and self-initialized).
 #   2. Create the application database.
 #   3. Create the application account (host-restricted, no root password set).
 #   4. Narrow the firewall: remove broad mysql service, add source-IP rich rule.
+#
+# SCOPE: DB foundation only — database, account, privileges, firewall narrowing.
+# This role does NOT create schema or seed data. Schema and seed are app-team
+# territory, applied by the app's Alembic migrations in 03_app_release (G17).
+# The former service_records creation and ansible-bootstrap seed tasks have been
+# intentionally removed from this role. See app/corp-app/migrations/.
 #
 # The play sets become: true; root is required for socket access and firewall
 # management. No become: false override is permitted here.
@@ -17,6 +23,8 @@
 #          in defaults/main.yml.
 #   G9  — no package installation tasks; all runtime dependencies (mariadb-server,
 #          python3-PyMySQL) are baked into the database image.
+#   G17 — no schema creation (CREATE TABLE) or seed inserts (INSERT INTO);
+#          those are app-team territory via Alembic migrations (app_release).
 
 - name: Wait for MariaDB unix socket to be present
   ansible.builtin.wait_for:
@@ -24,7 +32,7 @@
     state: present
     timeout: "{{ mariadb_socket_timeout }}"
   # This gate guarantees MariaDB has completed first-boot self-initialization
-  # before any community.mysql tasks attempt a connection.
+  # before any ansible.mariadb tasks attempt a connection.
 
 - name: Create application database
   ansible.mariadb.mariadb_db:
@@ -43,67 +51,38 @@
     state: present
     login_unix_socket: "{{ mariadb_socket }}"
   no_log: true
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  # DELIBERATE OVER-GRANT — READ THIS COMMENT BEFORE COPYING THIS PATTERN
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  #
+  # DDL privileges (CREATE, ALTER, DROP, INDEX) are granted on the application
+  # database so the app team can own their schema end-to-end via Alembic
+  # migrations. That is the deliberate simplification that keeps this example
+  # focused on the bootc ↔ Ansible ownership boundary.
+  #
+  # THE RUNNING SERVICE USES ONLY SELECT AND INSERT (see app/corp-app/src/).
+  # Granting DDL to a long-running, network-exposed service process is a real
+  # anti-pattern. A real production deployment MUST split credentials:
+  #   - Release-time migration account: DDL + DML, ephemeral/release-scoped,
+  #     never persisted on the host after migrations complete.
+  #   - Runtime service account: SELECT, INSERT only — least-privilege.
+  # Each account carries its own secret; the migration credential is ideally
+  # injected at release time and revoked immediately after.
+  #
+  # This gap is named here, in the README (Practitioner Notes), and in the
+  # acceptance criteria (design-spec.md §12 Task 7). It is intentional and
+  # signposted so the example teaches correct intent, not silent anti-pattern.
+  # The complexity of two accounts is off-thesis for this reference pattern and
+  # would compete with the core bootc/Ansible lesson — but it is never left
+  # unstated.
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  #
   # host: app_host_address — the account is valid only for connections that
   # originate from the application host IP. Using 'localhost' or '%' would
   # either prevent the network connection or over-grant access.
   #
   # app_db_password comes from all/vault.yml (G4); it is never declared in
   # this role's defaults or in any group-specific vault.
-
-- name: Create service_records schema (idempotent)
-  ansible.mariadb.mariadb_query:
-    login_unix_socket: "{{ mariadb_socket }}"
-    login_db: "{{ app_db_name }}"
-    query: >-
-      CREATE TABLE IF NOT EXISTS {{ mariadb_table_name }}
-      (id INT AUTO_INCREMENT PRIMARY KEY,
-       message VARCHAR(255) NOT NULL,
-       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
-  become: true
-  # CREATE TABLE IF NOT EXISTS is inherently idempotent: a re-run is a no-op
-  # when the table already exists. Root unix-socket access is used here because
-  # the application account carries only SELECT/INSERT/UPDATE/DELETE — no DDL
-  # privilege (design-spec.md §8.2 "Must not do"). The app_db_name database is
-  # the target; no objects are created in any other schema.
-  #
-  # Table contract (authoritative — design-spec.md §8.2):
-  #   id         INT AUTO_INCREMENT PRIMARY KEY
-  #   message    VARCHAR(255) NOT NULL
-  #   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  # The application (§6.3) depends on exactly these three column names.
-
-- name: Check whether the bootstrap seed row already exists
-  ansible.mariadb.mariadb_query:
-    login_unix_socket: "{{ mariadb_socket }}"
-    login_db: "{{ app_db_name }}"
-    query: >-
-      SELECT COUNT(*) AS cnt
-      FROM {{ mariadb_table_name }}
-      WHERE message = %s
-    positional_args:
-      - "{{ mariadb_seed_message }}"
-  become: true
-  register: _seed_check
-  # Read the count before deciding whether to insert. Separating the check
-  # from the insert makes the idempotency guard explicit and avoids a blind
-  # INSERT that would accumulate duplicate bootstrap rows on every re-run.
-
-- name: Insert bootstrap seed row (only if not already present)
-  ansible.mariadb.mariadb_query:
-    login_unix_socket: "{{ mariadb_socket }}"
-    login_db: "{{ app_db_name }}"
-    query: >-
-      INSERT INTO {{ mariadb_table_name }} (message) VALUES (%s)
-    positional_args:
-      - "{{ mariadb_seed_message }}"
-  become: true
-  when: _seed_check.query_result[0][0]['cnt'] | int == 0
-  # The `when` guard is the idempotency mechanism (design-spec.md §8.2 task 5):
-  # insert only if the seed row is absent. Re-running the role when the row
-  # already exists produces 0 changes — the `when` condition evaluates false
-  # and the task is skipped entirely. The seed row is what the app_instance
-  # role asserts is visible via GET /, proving Ansible-as-entrypoint bootstrap
-  # reached the application layer (§8.3 task 5).
 
 - name: Remove broad mysql firewall service (image-baked, open to all)
   ansible.posix.firewalld:
