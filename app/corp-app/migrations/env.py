@@ -7,15 +7,15 @@ The database URL is read from /etc/corp-app/config.ini — the same file
 the running corp-app service reads. This guarantees that "alembic upgrade head"
 and the running service always target the same database instance.
 
-If /etc/corp-app/config.ini is absent (e.g., during local development or CI
-dry-run before the Ansible app_deploy role has run), the environment falls
-back to:
-  1. The DB_URL environment variable, if set.
-  2. A local SQLite database (corp-app-dryrun.db) as a last resort.
+ONLINE MODE (alembic upgrade head)
+  config.ini must exist. If it is absent and DB_URL env var is not set,
+  migration fails immediately with a clear error. SQLite is never used for
+  live migrations — MariaDB-specific DDL and the FROM DUAL seed would not work.
 
-The fallback is documented as dry-run only — MariaDB-specific SQL in the
-migrations may not be compatible with SQLite. For production use, config.ini
-must exist before running migrations.
+OFFLINE MODE (alembic upgrade --sql)
+  Emits SQL without connecting. Falls back to DB_URL env var for the
+  dialect hint, or to a SQLite URL as a last resort (for syntax checking
+  only — the generated SQL will target MariaDB syntax regardless).
 
 CORPORATE STACK (G15)
 ---------------------
@@ -30,6 +30,7 @@ import configparser
 import os
 import sys
 from logging.config import fileConfig
+from urllib.parse import quote_plus
 
 from alembic import context
 from sqlalchemy import create_engine, pool
@@ -39,12 +40,9 @@ from sqlalchemy import create_engine, pool
 # ---------------------------------------------------------------------------
 _CONFIG_PATH = "/etc/corp-app/config.ini"
 
-# Fallback URL for dry-run / development when config.ini is absent.
-# The DB_URL env var allows overriding to a real MariaDB URL without config.ini.
-_FALLBACK_DB_URL: str = os.environ.get(
-    "DB_URL",
-    "sqlite:///./corp-app-dryrun.db",
-)
+# SQLite fallback URL used ONLY in offline mode (--sql) when config.ini is
+# absent and DB_URL is not set. Online migrations never use this fallback.
+_OFFLINE_SQLITE_FALLBACK = "sqlite:///./corp-app-dryrun.db"
 
 # ---------------------------------------------------------------------------
 # Alembic Config object — provides access to values in alembic.ini
@@ -65,27 +63,54 @@ target_metadata = None
 # ---------------------------------------------------------------------------
 
 
-def _get_db_url() -> str:
+def _get_db_url(*, allow_sqlite_fallback: bool) -> str:
     """
     Build the SQLAlchemy database URL from /etc/corp-app/config.ini.
 
-    Falls back to DB_URL env var or a local SQLite path when config.ini is
-    not present. The fallback is only suitable for dry-run / offline SQL
-    generation (alembic upgrade --sql) — do not run online migrations against
-    SQLite in production.
+    Parameters
+    ----------
+    allow_sqlite_fallback:
+        True  → offline mode: fall back to DB_URL env var, then to a local
+                SQLite path (for SQL generation / syntax checking only).
+        False → online mode: raise RuntimeError if config.ini is absent and
+                DB_URL is not set. Never silently use SQLite for live migrations.
+
+    user and password are percent-encoded with quote_plus so that special
+    characters (e.g. @, /, #, +) in credentials do not corrupt the URL.
     """
     cfg = configparser.ConfigParser()
     files_read = cfg.read(_CONFIG_PATH)
 
     if not files_read:
-        print(
-            f"WARNING: {_CONFIG_PATH} not found.\n"
-            f"  Using fallback URL: {_FALLBACK_DB_URL!r}\n"
-            "  This is only suitable for dry-run / offline SQL generation.\n"
-            "  For production migrations, ensure config.ini exists first.",
-            file=sys.stderr,
+        env_url = os.environ.get("DB_URL")
+        if env_url:
+            print(
+                f"WARNING: {_CONFIG_PATH} not found; using DB_URL env var.",
+                file=sys.stderr,
+            )
+            return env_url
+
+        if allow_sqlite_fallback:
+            # Offline mode only: emit dialect-tagged SQL without a live connection.
+            # The generated SQL targets MariaDB syntax even with a SQLite URL here.
+            print(
+                f"WARNING: {_CONFIG_PATH} not found and DB_URL is not set.\n"
+                f"  Using SQLite fallback ({_OFFLINE_SQLITE_FALLBACK!r}) for "
+                "offline SQL generation only.\n"
+                "  Do NOT apply this SQL to a SQLite database — it contains "
+                "MariaDB-specific DDL (FROM DUAL, TIMESTAMP, AUTO_INCREMENT).",
+                file=sys.stderr,
+            )
+            return _OFFLINE_SQLITE_FALLBACK
+
+        # Online mode: fail fast — applying migrations without a real MariaDB
+        # connection would produce incorrect or destructive results.
+        raise RuntimeError(
+            f"Cannot run online migrations: {_CONFIG_PATH} not found "
+            "and the DB_URL environment variable is not set.\n"
+            "  Deploy the application config with the app_deploy Ansible role "
+            "before running 'alembic upgrade head'."
         )
-        return _FALLBACK_DB_URL
 
     db_host = cfg.get("database", "host")
     db_port = cfg.getint("database", "port", fallback=3306)
@@ -93,8 +118,10 @@ def _get_db_url() -> str:
     db_user = cfg.get("database", "user")
     db_password = cfg.get("database", "password")
 
+    # Percent-encode credentials: special characters in user/password break
+    # URL parsing if embedded raw in the connection string.
     return (
-        f"mysql+pymysql://{db_user}:{db_password}"
+        f"mysql+pymysql://{quote_plus(db_user)}:{quote_plus(db_password)}"
         f"@{db_host}:{db_port}/{db_name}?charset=utf8mb4"
     )
 
@@ -111,8 +138,11 @@ def run_migrations_offline() -> None:
     Emits SQL to stdout without establishing a live database connection.
     Useful for generating and reviewing SQL before applying it (dry-run).
     Invoke with: alembic upgrade --sql head
+
+    Falls back to DB_URL env var or a local SQLite URL when config.ini is
+    absent (SQLite fallback is permitted here because no live DB is touched).
     """
-    url = _get_db_url()
+    url = _get_db_url(allow_sqlite_fallback=True)
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -128,13 +158,16 @@ def run_migrations_online() -> None:
     """
     Run migrations in 'online' mode.
 
-    Establishes a live database connection and applies pending migrations.
+    Establishes a live MariaDB connection and applies pending migrations.
     Called by "alembic upgrade head" in the app_release Ansible role (§8.4).
+
+    Fails fast (RuntimeError) if /etc/corp-app/config.ini is absent and
+    DB_URL is not set — SQLite is never used for live online migrations.
 
     NullPool is used: migration runs are one-shot operations; connection
     pooling provides no benefit and would prevent clean process exit.
     """
-    url = _get_db_url()
+    url = _get_db_url(allow_sqlite_fallback=False)  # raises if no real DB config
     connectable = create_engine(
         url,
         poolclass=pool.NullPool,  # no persistent pool for one-shot migration runs

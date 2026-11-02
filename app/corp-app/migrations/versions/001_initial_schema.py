@@ -89,16 +89,20 @@ def upgrade() -> None:
     # queries and deprecated Alembic APIs (op.get_bind() is deprecated in 1.7+).
     #
     # The SQL reads: "INSERT one row with message='ansible-bootstrap' only when
-    # no rows exist in service_records." In MariaDB, a bare SELECT without FROM
-    # produces an implicit single-row result; the WHERE clause filters it to zero
-    # rows when the NOT EXISTS subquery is false, so the INSERT inserts nothing.
+    # no rows exist in service_records."
+    #
+    # FROM DUAL is required by MariaDB/MySQL: a bare SELECT without FROM is not
+    # valid in MySQL/MariaDB (unlike some other databases). DUAL is the standard
+    # MySQL/MariaDB dummy one-row table used when no real table is needed.
+    # The WHERE NOT EXISTS clause filters that row to zero rows when service_records
+    # already contains data, making the INSERT a no-op.
     #
     # Belt-and-suspenders: Alembic's version tracking prevents this migration from
     # running twice, but the WHERE guard ensures no duplicate even on replay.
     op.execute(
         sa.text(
             "INSERT INTO service_records (message) "
-            "SELECT 'ansible-bootstrap' "
+            "SELECT 'ansible-bootstrap' FROM DUAL "
             "WHERE NOT EXISTS (SELECT 1 FROM service_records)"
         )
     )

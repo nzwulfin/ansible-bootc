@@ -30,6 +30,7 @@ import sys
 from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import quote_plus, urlsplit
 
 # ---------------------------------------------------------------------------
 # Hardcoded config path (G12)
@@ -157,6 +158,9 @@ def build_engine(cfg: configparser.ConfigParser) -> sa.Engine:
     the corporate database standard in
     images/database/rootfs/etc/my.cnf.d/00-corporate.cnf (Section 5.2).
 
+    user and password are percent-encoded with quote_plus so that special
+    characters (e.g. @, /, #, +) in credentials do not corrupt the URL.
+
     pool_pre_ping ensures stale connections are detected before use.
     connect_timeout=5 causes fast failure on an unreachable database.
     """
@@ -166,8 +170,10 @@ def build_engine(cfg: configparser.ConfigParser) -> sa.Engine:
     user = cfg.get("database", "user")
     password = cfg.get("database", "password")
 
+    # Percent-encode credentials: special characters in user/password break
+    # URL parsing if embedded raw in the connection string.
     url = (
-        f"mysql+pymysql://{user}:{password}"
+        f"mysql+pymysql://{quote_plus(user)}:{quote_plus(password)}"
         f"@{host}:{port}/{name}?charset=utf8mb4"
     )
     return create_engine(
@@ -256,21 +262,64 @@ class AppHandler(BaseHTTPRequestHandler):
             self.close_connection = True
 
     def _dispatch(self) -> None:
-        """Route the current request to its handler or emit 404/405."""
-        handler_name = self._ROUTES.get((self.command, self.path))
+        """Route the current request to its handler or emit 404/405.
+
+        self.path may include a query string (e.g. '/health?verbose=1').
+        urlsplit strips the query component so '/health?verbose=1' routes
+        correctly to GET /health rather than falling through to a 404.
+        """
+        # Strip query string and fragment before matching; only the path matters.
+        path = urlsplit(self.path).path
+        handler_name = self._ROUTES.get((self.command, path))
         if handler_name:
             getattr(self, handler_name)()
-        elif self.path in self._KNOWN_PATHS:
+        elif path in self._KNOWN_PATHS:
             self._send_json(
                 405,
-                {"detail": f"Method {self.command!r} not allowed on {self.path}"},
+                {"detail": f"Method {self.command!r} not allowed on {path}"},
             )
         else:
-            self._send_json(404, {"detail": f"Not found: {self.path}"})
+            self._send_json(404, {"detail": f"Not found: {path}"})
 
     # ------------------------------------------------------------------
     # Response helpers
     # ------------------------------------------------------------------
+
+    def send_error(  # type: ignore[override]
+        self,
+        code: int,
+        message: str | None = None,
+        explain: str | None = None,
+    ) -> None:
+        """
+        Override BaseHTTPRequestHandler.send_error to return JSON.
+
+        The base implementation returns an HTML error page, which violates the
+        contract that all corp-app responses carry Content-Type: application/json.
+        This override is called by parse_request() for malformed request lines,
+        oversized URIs, and other HTTP-protocol-level errors.
+        """
+        try:
+            phrase = HTTPStatus(code).phrase
+        except ValueError:
+            phrase = "Unknown Error"
+
+        error_message = message or phrase
+        self.log_error("code %d, message %s", code, error_message)
+
+        body_data: dict = {"detail": error_message}
+        if explain:
+            body_data["explain"] = explain
+        body = json.dumps(body_data).encode("utf-8")
+
+        self.send_response(code, error_message)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        # Suppress body for HEAD requests and responses that must not have a body
+        if self.command != "HEAD" and code >= 200 and code not in (204, 304):
+            self.wfile.write(body)
 
     def _send_json(self, status: int, data: dict) -> None:
         """Encode *data* as JSON and write an HTTP response with Content-Type: application/json."""
