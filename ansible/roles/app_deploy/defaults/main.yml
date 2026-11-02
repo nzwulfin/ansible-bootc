@@ -1,0 +1,60 @@
+---
+# app_deploy role defaults
+#
+# Overridable operational knobs with sensible defaults implementing the
+# corporate application deployment standard (G14, design-spec.md §8.3).
+#
+# These defaults serve as documentation of the corporate standard and as
+# fallbacks when the role is used outside the 'application' group. For hosts
+# in the 'application' group, group_vars/application/vars.yml values take
+# precedence (Ansible variable precedence: group_vars > role defaults).
+#
+# Must NOT declare (design-spec.md §8.3 defaults contract):
+#   - app_db_password (G4: declared ONLY in all/vault.yml)
+#   - app_db_name, app_db_user (shared vars from group_vars/all/vars.yml)
+#   - db_host, app_port (instance vars from group_vars/application/vars.yml)
+#   - The config path /etc/corp-app/config.ini (fixed by G12; not a knob)
+
+# Payload install root.
+# On bootc, /opt resolves under /var/opt (persistent, Ansible-owned, preserved
+# across bootc upgrade/rollback). No application code is baked into the image
+# (G7, G14).
+app_root: "/opt/corp-app"
+
+# Virtualenv path inside the payload root.
+# Created with system site-packages so the baked corporate Python stack
+# (SQLAlchemy, Alembic, Pydantic, DB drivers) is visible without re-installation
+# (G14, G15).
+app_venv: "{{ app_root }}/venv"
+
+# Path to the application payload source tree (app/corp-app/ or a built artifact).
+# Uses inventory_dir (always ansible/inventory/ per ansible.cfg, G11) to navigate
+# to the repo root — resolves correctly whether the role is invoked via site.yml
+# (playbook_dir = ansible/) or directly via playbooks/02_app_deploy.yml
+# (playbook_dir = ansible/playbooks/). inventory_dir is stable in both cases.
+# Note: group_vars/application/vars.yml overrides this for the 'application' group.
+app_src: "{{ inventory_dir ~ '/../../app/corp-app' }}"
+
+# The ExecStart entrypoint rendered into corp-app.service.j2.
+# Points into the venv's Python interpreter so the baked corporate stack and any
+# app-specific extras installed from requirements.txt are on sys.path (G14, G15).
+app_entrypoint: "{{ app_venv }}/bin/python3 {{ app_root }}/src/main.py"
+
+# Mode for the /etc/corp-app/ directory.
+# 0750: root-owned, group-readable, not world-readable.
+# The directory contains config.ini which carries app_db_password (G4).
+app_config_dir_mode: "0750"
+
+# Mode for /etc/corp-app/config.ini.
+# 0640: root-owned, group-readable, not world-readable (protects app_db_password, G4).
+app_config_file_mode: "0640"
+
+# Name of the systemd service unit (without the .service suffix).
+# Must match the unit filename deployed to /etc/systemd/system/corp-app.service
+# and the handler target.
+app_service_name: "corp-app"
+
+# MariaDB port used in the [database] section of config.ini.
+# Default follows the MariaDB standard; override if the instance listens
+# on a non-standard port.
+db_port: 3306

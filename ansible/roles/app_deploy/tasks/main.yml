@@ -1,0 +1,153 @@
+---
+# app_deploy — tasks/main.yml
+#
+# Installs the application payload onto the corporate Python runtime baseline
+# and lays down its instance configuration and systemd unit — without starting
+# the service, running migrations, or opening the firewall.
+#
+# Task sequence (design-spec.md §8.3):
+#   1. Gather service facts (for conditional handler behaviour)
+#   2. Ensure /opt/corp-app directory exists
+#   3. Deliver application payload from source tree (idempotent copy)
+#   4. Create virtualenv with system site-packages (G14, G15)
+#   5. Install app-specific pinned extras from requirements.txt (G9, G16)
+#   6. Ensure /etc/corp-app/ config directory exists
+#   7. Deploy config.ini from template (G12)
+#   8. Deploy corp-app.service unit from template (G7)
+#   9. Reload systemd daemon if unit file created or changed
+#
+# Constraints honoured:
+#   G4  — app_db_password not declared here; resolved from all/vault.yml only
+#   G7  — unit rendered to /etc/systemd/system/ (instance-owned, NOT baked)
+#   G9  — no OS package installation; all runtime deps are baked in the image
+#   G12 — config deployed to exactly /etc/corp-app/config.ini (fixed path)
+#   G14 — payload deployed to /opt/corp-app; venv with --system-site-packages
+#   G15 — corporate Python stack inherited from image; NOT re-installed here
+#   G16 — app extras installed only from pinned requirements.txt
+#   G17 — service NOT enabled or started (that is app_release, §8.4)
+#   G19 — no firewall port opened
+
+- name: Gather service facts for conditional handler behaviour
+  ansible.builtin.service_facts:
+  # Populates ansible_facts.services so the 'Restart corp-app' handler can
+  # determine whether the service is already running before attempting a
+  # restart. On first deployment the service is inactive; the handler skips
+  # the restart, satisfying G7 and G17. On re-deployment after app_release
+  # the service IS running; the handler restarts it to pick up changes.
+
+- name: Ensure application root directory exists
+  ansible.builtin.file:
+    path: "{{ app_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  # /opt resolves under /var/opt on bootc (persistent, Ansible-owned, G14).
+  # No application code is baked in the image — this directory is created
+  # and owned exclusively by Ansible (G7).
+
+- name: Deliver application payload from source tree
+  ansible.builtin.copy:
+    src: "{{ app_src }}/"
+    dest: "{{ app_root }}/"
+    owner: root
+    group: root
+    mode: preserve
+  # src ends with '/' to copy the CONTENTS of app_src into app_root, not a
+  # subdirectory named 'corp-app'. Copies src/main.py, requirements.txt, and
+  # migrations/ directly into /opt/corp-app/.
+  #
+  # ansible.builtin.copy is idempotent: re-running with unchanged source
+  # produces no changes. File modes are preserved from the source tree
+  # (mode: preserve).
+
+- name: Create virtualenv with system site-packages
+  ansible.builtin.pip:
+    name: []
+    virtualenv: "{{ app_venv }}"
+    virtualenv_site_packages: true
+    virtualenv_command: "python3 -m venv"
+  # CRITICAL (G14, G15): virtualenv_site_packages: true creates the venv with
+  # --system-site-packages, making the baked corporate Python stack (SQLAlchemy,
+  # Alembic, Pydantic, python3-PyMySQL, python3-psycopg2) visible inside the
+  # venv without re-installation or re-pinning (design-spec.md §6.2, G15).
+  #
+  # name: [] — no packages to install; this task solely ensures the venv exists
+  # with the correct system-site-packages flag. App-specific extras are installed
+  # from requirements.txt in the next task.
+  #
+  # virtualenv_command: "python3 -m venv" uses Python's built-in venv module
+  # rather than the legacy virtualenv tool, consistent with CentOS Stream 10.
+  #
+  # This task is idempotent: if the venv already exists with system-site-packages
+  # enabled, it is a no-op.
+
+- name: Install app-specific pinned extras from requirements.txt
+  ansible.builtin.pip:
+    requirements: "{{ app_root }}/requirements.txt"
+    virtualenv: "{{ app_venv }}"
+  # Installs ONLY what requirements.txt declares — app-specific extras with fully
+  # pinned versions (== specifiers, per G16). The corporate Python stack
+  # (SQLAlchemy, Alembic, Pydantic, DB drivers) is NOT listed in requirements.txt
+  # (G15) and is inherited from system site-packages via the venv above.
+  #
+  # If requirements.txt is empty or contains only comments, this task is a no-op.
+  # Never uses --upgrade or floating version ranges; pinning is the reproducibility
+  # guarantee (G9 exception, G16).
+
+- name: Ensure /etc/corp-app configuration directory exists
+  ansible.builtin.file:
+    path: /etc/corp-app
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ app_config_dir_mode }}"
+  # Mode {{ app_config_dir_mode }} (default 0750): root-owned, group-readable,
+  # not world-readable. The directory contains config.ini which carries
+  # app_db_password (G4).
+
+- name: Deploy application configuration from template
+  ansible.builtin.template:
+    src: config.ini.j2
+    dest: /etc/corp-app/config.ini
+    owner: root
+    group: root
+    mode: "{{ app_config_file_mode }}"
+  notify: Restart corp-app
+  # dest is FIXED at /etc/corp-app/config.ini (G12) — must agree with the path
+  # hardcoded in the application executable and with the path the systemd service
+  # process reads at runtime. A divergence between any two silently breaks the
+  # application at startup.
+  #
+  # 'Restart corp-app' is notified when the rendered config changes. The handler
+  # only restarts if the service is already active; on first deployment the
+  # service is inactive and the restart step is safely skipped (G7, G17).
+
+- name: Deploy corp-app systemd unit from template
+  ansible.builtin.template:
+    src: corp-app.service.j2
+    dest: /etc/systemd/system/corp-app.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart corp-app
+  register: _corp_app_unit
+  # Deploys to /etc/systemd/system/ — instance-owned, NOT baked (G7).
+  # The application image carries no corp-app.service unit (design-spec.md G7, §6.1).
+  # The unit is NOT enabled or started here; app_release is responsible for
+  # enabling, starting, and confirming the service (design-spec.md §8.4, G17).
+  #
+  # No firewall port is opened (G19); external reachability is a deliberate,
+  # separately-labelled step in 04_proof_of_life.yml.
+
+- name: Reload systemd daemon after unit file created or changed
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: _corp_app_unit.changed
+  # Ensures systemd picks up the new or changed unit definition so that the
+  # subsequent app_release play (enable + start) sees the correct unit file.
+  #
+  # Belt-and-suspenders for the first-deployment case: the 'Restart corp-app'
+  # handler also carries daemon_reload, but its service-restart step is skipped
+  # when the service is inactive. This explicit reload guarantees the unit is
+  # visible regardless of service state.
