@@ -44,9 +44,9 @@ app_root: "/opt/corp-app"
 app_venv: "{{ app_root }}/venv"
 
 # Path to the application payload source tree (the app/corp-app/ tree, or a built artifact).
-# Resolved relative to the playbook directory so the path is correct whether the playbook
-# is invoked via site.yml or directly from playbooks/ (G11).
-app_src: "{{ playbook_dir }}/../app/corp-app"
+# Resolved relative to inventory_dir so the path is correct whether the playbook
+# is invoked via site.yml, directly from playbooks/, or under AAP (G11).
+app_src: "{{ inventory_dir ~ '/../../app/corp-app' }}"
 
 # The ExecStart entrypoint the rendered corp-app.service unit invokes.
 # Points into the venv's interpreter so the corporate stack is on sys.path (G14, G15).
