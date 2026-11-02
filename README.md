@@ -571,7 +571,13 @@ Follow the operator workflow to experience the default-deny firewall posture:
    ```
    *The connection times out because the host's firewall is default-deny.*
 
-2. **Verify app-to-database on the host (Proof of Life):**
+2. **Verify host connectivity (Is the VM alive?):**
+   ```bash
+   ping -c 1 app01
+   ```
+   *The ping returns immediately. This proves `app01` is online, network routing is intact, and `libvirt-nss` is actively resolving the hostname — isolating the failure directly to the host's firewall.*
+
+3. **Verify app-to-database on the host (Proof of Life):**
    Run the verification playbook against `app01` to confirm the application is healthy and actively communicating with MariaDB:
    ```bash
    # Working directory: ansible/
@@ -579,17 +585,17 @@ Follow the operator workflow to experience the default-deny firewall posture:
    ```
    *All checks succeed on-host over loopback (health connected, seed visible, live write probe, input validation).*
 
-3. **Troubleshoot the firewall:**
-   The application is healthy and talking to MariaDB, so why did external `curl` fail? The application host's firewall is default-deny and has not exposed port 8080.
+4. **Troubleshoot the firewall:**
+   The host is reachable via ICMP, the application is healthy, and it communicates with MariaDB — so why did external `curl` fail? The application host's firewall is default-deny and has not exposed port 8080.
 
-4. **Expose the port:**
+5. **Expose the port:**
    Run the operational exposure playbook to open port 8080:
    ```bash
    # Working directory: ansible/
    ansible-playbook playbooks/expose_app.yml
    ```
 
-5. **Test again from your workstation:**
+6. **Test again from your workstation:**
    Now external network traffic reaches the application:
    ```bash
    curl -s http://app01:8080/health | jq .
