@@ -430,11 +430,8 @@ app-specific extras.
 
 **Must include, grouped and commented as three tiers:**
 
-1. **Core runtime:** `python3`, `python3-pip`, `python3-virtualenv`, `ca-certificates`,
-   `tzdata`. (`python3` is already present from the base; it is listed so the runtime set is
-   explicit and self-documenting.)
-2. **Helpers & packaging tooling:** `git`, `tar`, `gzip`, `unzip`, `python3-setuptools`,
-   `python3-wheel`.
+1. **Core runtime:** `python3`, `python3-pip`, `ca-certificates`, `tzdata` (plus `virtualenv` and `wheel` installed via build-time pip, as they are not standalone AppStream RPMs in CentOS Stream 10).
+2. **Helpers & packaging tooling:** `git`, `tar`, `gzip`, `unzip`, `python3-setuptools`.
 3. **Corporate DB drivers + data-abstraction layer (explicitly called out as corporate
    standard, not universally required by every Python app):**
    - DB drivers: `python3-PyMySQL` (MariaDB/MySQL), `python3-psycopg2` (PostgreSQL). Two

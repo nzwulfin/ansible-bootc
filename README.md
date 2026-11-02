@@ -1018,10 +1018,10 @@ version or a venv rebuild is rolled out.
 | `mariadb-backup` | database | DBA physical backup/recovery — frequently needed, host-coupled |
 | `lsof`, `strace`, `procps-ng`, `sysstat` | database | DBA host diagnostics (open files, syscalls, `ps`/`vmstat`, `iostat`/`sar`) |
 | `jq` | database | JSON inspection for logs/API output |
-| `python3`, `python3-pip`, `python3-virtualenv` | application | Corporate Python runtime core: interpreter + venv tooling for app deployment |
+| `python3`, `python3-pip` (RPM); `virtualenv` (pip) | application | Corporate Python runtime core: interpreter + venv tooling for app deployment |
 | `ca-certificates`, `tzdata` | application | TLS trust and timezone data for the runtime baseline |
 | `git`, `tar`, `gzip`, `unzip` | application | Helper tooling for payload/artifact handling |
-| `python3-setuptools`, `python3-wheel` | application | Python packaging support |
+| `python3-setuptools` (RPM); `wheel` (pip) | application | Python packaging support |
 | `python3-PyMySQL`, `python3-psycopg2` | application | Corporate DB driver set (MariaDB/MySQL + PostgreSQL) — standardized centrally |
 | `SQLAlchemy`, `Alembic`, `Pydantic` | application | Corporate data-abstraction layer (RPM where packaged, else pinned build-time pip) |
 
