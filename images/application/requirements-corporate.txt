@@ -12,10 +12,6 @@
 # (see app/corp-app/requirements.txt).
 #
 # Package rationale:
-#   wheel       Binary wheel packaging format support; installed at build time
-#               into system site-packages (not available as standalone AppStream RPM).
-#   virtualenv  Virtualenv CLI tool; installed at build time into system site-packages
-#               (not available as standalone AppStream RPM; python3 also provides stdlib venv).
 #   sqlalchemy  ORM and SQL abstraction layer; the corporate standard for
 #               all relational DB access. Imported directly by the
 #               application payload (Section 6.3) and by Alembic migrations.
@@ -27,8 +23,6 @@
 #               for request body validation on POST /record (Section 6.3).
 #               Pinned to the v2 API — ensure app payload imports use the
 #               v2 interface (pydantic.BaseModel, etc.).
-wheel==0.45.1
-virtualenv==20.29.2
 sqlalchemy==2.0.38
 alembic==1.14.1
 pydantic==2.10.6
