@@ -1,17 +1,23 @@
-# Corporate Python data-abstraction layer — build-time pinned requirements.
+# Corporate Python packaging tooling & data-abstraction layer — build-time pinned requirements.
 #
-# These packages complete Tier 3 of the corporate Python runtime bundle
+# These packages complete Tiers 1, 2, and 3 of the corporate Python runtime bundle
 # (see images/application/Containerfile for the full bundle definition).
-# They are installed into system site-packages at image build time
-# (G9 bake-time exception; G16 exact pins).
+# On CentOS Stream 10, wheel and virtualenv are not distributed as standalone
+# BaseOS/AppStream RPMs, and SQLAlchemy, Alembic, and Pydantic are maintained at exact
+# corporate-standard versions. They are installed into system site-packages at
+# image build time (G9 bake-time exception; G16 exact pins).
 #
-# THIS IS THE SINGLE SOURCE OF TRUTH for the corporate data-abstraction
-# layer (G15). Downstream consumers (app venvs, app roles, app payloads)
-# MUST NOT re-install, shadow, or pin alternate versions of these packages.
-# App teams install only genuinely app-specific extras into their venv
-# (see app/corp-app/requirements.txt).
+# THIS IS THE SINGLE SOURCE OF TRUTH for the corporate runtime baseline
+# packaging and data-abstraction layer (G15). Downstream consumers (app venvs,
+# app roles, app payloads) MUST NOT re-install, shadow, or pin alternate
+# versions of these packages. App teams install only genuinely app-specific
+# extras into their venv (see app/corp-app/requirements.txt).
 #
 # Package rationale:
+#   wheel       Binary wheel packaging format support; installed at build time
+#               into system site-packages (not available as standalone AppStream RPM).
+#   virtualenv  Virtualenv CLI tool; installed at build time into system site-packages
+#               (not available as standalone AppStream RPM; python3 also provides stdlib venv).
 #   sqlalchemy  ORM and SQL abstraction layer; the corporate standard for
 #               all relational DB access. Imported directly by the
 #               application payload (Section 6.3) and by Alembic migrations.
@@ -23,6 +29,8 @@
 #               for request body validation on POST /record (Section 6.3).
 #               Pinned to the v2 API — ensure app payload imports use the
 #               v2 interface (pydantic.BaseModel, etc.).
+wheel==0.45.1
+virtualenv==20.29.2
 sqlalchemy==2.0.38
 alembic==1.14.1
 pydantic==2.10.6

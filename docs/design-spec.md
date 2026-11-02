@@ -24,7 +24,7 @@ satisfies its own contract but violates a global constraint is incorrect.
 | G7  | App unit is instance-owned, not baked | The application image must **not** bake the `corp-app.service` unit or any application code. The unit is rendered by Ansible to `/etc/systemd/system/corp-app.service` at release time and must not be enabled or started until the payload is deployed, dependencies are installed, `/etc/corp-app/config.ini` exists, and migrations have run. The image is a reusable Python *runtime baseline* — it carries no workload-specific unit, executable, or firewall port. (This supersedes the former "baked but not enabled" model: the app layer no longer ships app content at all.) |
 | G8  | SSH policy delivery | SSH hardening policy is delivered exclusively through a drop-in file under `/etc/ssh/sshd_config.d/`. The base `sshd_config` file must never be modified or replaced directly. |
 | G9  | No runtime **OS** package management; scoped Python exception | No Ansible task may install or update **operating-system** packages (`dnf`/`yum`/`rpm`/`package`/`dnf-automatic`). OS packages are bake-time only. **Scoped exception:** Ansible *may* install **application-level Python dependencies** at runtime, but only (a) into the application virtualenv under `/opt/corp-app/venv`, (b) with fully pinned versions (`==`, or an equivalent hash/lock), (c) never with `--upgrade`, unbounded, or floating specifiers, and (d) never into system `site-packages`. The corporate shared Python stack (DB drivers + data abstraction layer) is baked into the image, not installed at runtime (G15); runtime pip installs are limited to genuinely app-specific libraries. |
-| G14 | Standard application deployment target | Application payloads deploy to `/opt/corp-app` with the virtualenv at `/opt/corp-app/venv`. No image bakes application code. On bootc, `/opt` resolves under `/var/opt` (persistent, install-only, preserved across upgrade/rollback), which is the correct zone for Ansible-owned instance payload. The venv must be created with access to system site-packages so the baked corporate stack (G15) is visible without re-installation. |
+| G14 | Standard application deployment target | Application payloads deploy to `/opt/corp-app` with the virtualenv at `/opt/corp-app/venv`. No image bakes application code. To support this on bootc's immutable read-only root (/), the application image creates `/var/opt/corp-app` on persistent storage and symlinks `/opt/corp-app -> /var/opt/corp-app` (following the bootc best practice of symlinking only the specific required subdirectories into `/var` without modifying the system `/opt` directory). The venv must be created with access to system site-packages so the baked corporate stack (G15) is visible without re-installation. |
 | G15 | Single corporate Python standard | The shared Python runtime — the DB driver set (`python3-PyMySQL`, `python3-psycopg2`) and the data-abstraction layer (SQLAlchemy, Alembic, Pydantic) — is defined **once**, baked into the application image, and is the single source of truth. Ansible roles and app teams must not re-install, shadow, or pin alternate versions of these shared components; they install only app-specific extras (G9 exception). This is what makes the image a reusable, centrally governed runtime baseline. |
 | G16 | Pinned versions mandatory | Every runtime Python install performed by Ansible must specify an exact pinned version. Floating ranges, `latest`, and `--upgrade` are prohibited. (There is no internal/offline index; pinning is the reproducibility guarantee.) |
 | G17 | Deployment vs. proof-of-life separation | "Real" deployment plays/roles must not contain functional application exercises. A single lightweight **readiness gate** (one `/health` reachability check with retry) is permitted in release to confirm the service came up. All functional verification — `GET /` seed-visibility assertions, `POST /record` write probes, negative-input tests, DB-side cross-checks — lives only in the optional `04_proof_of_life.yml`, which a user runs to demonstrate the system, never as a deployment prerequisite. |
@@ -110,11 +110,12 @@ ansible-bootc/
     ├── keys/                         ← generated key material only; no scripts
     │   └── .gitignore
     ├── playbooks/
-    │   ├── 00_bootstrap.yml          ← platform: PSK → live key onboarding
-    │   ├── 01_database.yml           ← DBA: DB foundation only (no schema/seed)
-    │   ├── 02_app_deploy.yml         ← app team play 1: deploy payload/venv/config/unit
-    │   ├── 03_app_release.yml        ← app team play 2: migrate + start + readiness gate
-    │   └── 04_proof_of_life.yml      ← optional user exercise: functional verification
+    │   ├── bootstrap.yml             ← platform: PSK → live key onboarding
+    │   ├── database.yml              ← DBA: DB foundation only (no schema/seed)
+    │   ├── app_deploy.yml            ← app team play 1: deploy payload/venv/config/unit
+    │   ├── app_release.yml           ← app team play 2: migrate + start + readiness gate
+    │   ├── proof_of_life.yml         ← optional user exercise: on-host verification
+    │   └── expose_app.yml            ← optional user action: open firewall port
     └── roles/
         ├── bootstrap_key_rotation/
         ├── mysql_instance/           ← DB foundation (infra), schema-free
@@ -407,6 +408,10 @@ the file reads as the corporate standard it is.
    with `pip` **at build time** into the system interpreter, from a pinned requirement set
    (G16). This is a bake action, not a runtime action, and is therefore permitted. The
    pinned set must be committed and visible (a comment must point to it).
+3. Configure the host deployment target on persistent storage: create `/var/opt/corp-app`
+   and symlink `/opt/corp-app -> /var/opt/corp-app`. This enables runtime application payload
+   deployment to `/opt/corp-app` on persistent, writable `/var` storage without modifying the
+   system `/opt` root directory (G14).
 
 **Must not do:**
 - Contain a `rootfs/` tree or any application code, executable, or systemd unit (G7, G14).
@@ -430,11 +435,8 @@ app-specific extras.
 
 **Must include, grouped and commented as three tiers:**
 
-1. **Core runtime:** `python3`, `python3-pip`, `python3-virtualenv`, `ca-certificates`,
-   `tzdata`. (`python3` is already present from the base; it is listed so the runtime set is
-   explicit and self-documenting.)
-2. **Helpers & packaging tooling:** `git`, `tar`, `gzip`, `unzip`, `python3-setuptools`,
-   `python3-wheel`.
+1. **Core runtime:** `python3`, `python3-pip`, `ca-certificates`, `tzdata` (plus `virtualenv` and `wheel` installed via build-time pip into system site-packages, as they are not standalone BaseOS/AppStream RPMs in CentOS Stream 10).
+2. **Helpers & packaging tooling:** `git`, `tar`, `gzip`, `unzip`, `python3-setuptools`.
 3. **Corporate DB drivers + data-abstraction layer (explicitly called out as corporate
    standard, not universally required by every Python app):**
    - DB drivers: `python3-PyMySQL` (MariaDB/MySQL), `python3-psycopg2` (PostgreSQL). Two
@@ -641,16 +643,15 @@ collection dependency.
 sequence.
 
 **Must declare:** `import_playbook` statements, in order, for the four deployment phases:
-`playbooks/00_bootstrap.yml`, `playbooks/01_database.yml`, `playbooks/02_app_deploy.yml`,
-`playbooks/03_app_release.yml`.
+`playbooks/bootstrap.yml`, `playbooks/database.yml`, `playbooks/app_deploy.yml`,
+`playbooks/app_release.yml`.
 
-**Must not do:** Import `playbooks/04_proof_of_life.yml`. Proof-of-life is an optional,
-user-invoked verification exercise, never a deployment step (G17). It is run separately and
-documented as such. A header comment must state this explicitly, alongside the standalone
-vs. AAP job-template split.
+**Must not do:** Import `playbooks/proof_of_life.yml` or `playbooks/expose_app.yml`. These are
+optional, user-invoked operational and verification playbooks (G17). They are run separately, by
+hand, after deployment.
 
 Include a header comment explaining the ownership of each phase (platform → DBA → app team ×2)
-and that `04_proof_of_life.yml` is run by hand after deployment.
+and that `proof_of_life.yml` and `expose_app.yml` are run by hand after deployment.
 
 ---
 
@@ -704,7 +705,7 @@ The config path `/etc/corp-app/config.ini` is **not** a variable (fixed by G12).
 
 ---
 
-### 7.7 `ansible/playbooks/00_bootstrap.yml`
+### 7.7 `ansible/playbooks/bootstrap.yml`
 
 **Purpose:** PSK probe → key rotation → live key verification. The single discrete onboarding unit. AAP-separable: this playbook runs with the bootstrap credential; workload playbooks run with the live credential.
 
@@ -724,6 +725,7 @@ The config path `/etc/corp-app/config.ini` is **not** a variable (fixed by G12).
 
 **Play 3 — Verify live key access:**
 - `hosts: all`, `gather_facts: false`.
+- Tagged with `live_key_verify` for AAP `--skip-tags` support.
 - No `ansible_ssh_private_key_file` override — uses `ansible.cfg` default (live key).
 - `ansible.builtin.ping`. This play fails loudly if any host is unreachable via the live key, providing the post-rotation check.
 
@@ -731,20 +733,20 @@ The config path `/etc/corp-app/config.ini` is **not** a variable (fixed by G12).
 
 ---
 
-### 7.8 `ansible/playbooks/01_database.yml` — DB foundation (DBA-owned)
+### 7.8 `ansible/playbooks/database.yml` — DB foundation (DBA-owned)
 
 **Must declare:** `hosts: database`, `gather_facts: true`, `become: true`, apply role `mysql_instance`.
 
 **Scope:** Database *foundation* only — DB, accounts, privileges, firewall narrowing. It
 creates **no** application schema and **no** seed data; those are app-team territory, applied
-by the app's Alembic migrations in `03_app_release` (G17, Section 6.5).
+by the app's Alembic migrations in `app_release` (G17, Section 6.5).
 
 Include a comment noting ownership (DBA team) and AAP usage: run as a separate job template
-with the live machine credential, after `00_bootstrap.yml` completes.
+with the live machine credential, after `bootstrap.yml` completes.
 
 ---
 
-### 7.9 `ansible/playbooks/02_app_deploy.yml` — app deploy (app-team play 1)
+### 7.9 `ansible/playbooks/app_deploy.yml` — app deploy (app-team play 1)
 
 **Must declare:** `hosts: application`, `gather_facts: true`, `become: true`, apply role `app_deploy`.
 
@@ -755,11 +757,11 @@ The service is **not** enabled/started here, migrations are **not** run here, an
 firewall port is **not** opened here (G17, G19).
 
 Include a comment: app-feature team ownership, play 1 of 2; AAP = part of the workload job
-(live credential), after `01_database.yml`.
+(live credential), after `database.yml`.
 
 ---
 
-### 7.10 `ansible/playbooks/03_app_release.yml` — app release / go-live (app-team play 2)
+### 7.10 `ansible/playbooks/app_release.yml` — app release / go-live (app-team play 2)
 
 **Must declare:** `hosts: application`, `gather_facts: true`, `become: true`, apply role `app_release`.
 
@@ -774,7 +776,26 @@ firewall-exposure step is a teaching moment documented in the README.
 
 ---
 
-### 7.11 `ansible/playbooks/04_proof_of_life.yml` — optional verification exercise (user-run)
+### 7.11 `ansible/playbooks/proof_of_life.yml` — optional on-host verification exercise (user-run)
+
+**Must declare:** Not imported by `site.yml` (G17). Run by hand on `hosts: application` to
+verify that the application is running and communicating with MariaDB over loopback:
+- `GET /health` — database connected
+- `GET /` — seed record visible in records
+- `POST /record` — live write verification probe
+- `POST /record` with `{}` — negative input validation
+
+Runs over loopback on the application host. Demonstrates that the application is fully
+functional and communicating with the database, even before external firewall exposure.
+
+---
+
+### 7.12 `ansible/playbooks/expose_app.yml` — optional external firewall exposure (user-run)
+
+**Must declare:** Not imported by `site.yml`. Run by hand on `hosts: application` with `become: true`.
+Explicitly opens `{{ app_port }}/tcp` in firewalld (`permanent: true`, `immediate: true`).
+This is the deliberate operational step that makes the service network-reachable from external
+clients (G19 teaching moment).
 
 **Must declare:** Not imported by `site.yml` (G17). Run by a user by hand after deployment.
 
@@ -1169,8 +1190,8 @@ Each task is a discrete, independently reviewable unit. Dependencies are listed;
 **Applicable constraints:** G7, G9, G14, G15, G16, G18, G19.
 
 **Acceptance criteria:**
-- `podman build -t corp-app-img:latest images/application/` completes without error.
-- `bootc container lint corp-app-img:latest` exits 0.
+- `podman build -t corp-app:latest images/application/` completes without error.
+- `bootc container lint corp-app:latest` exits 0.
 - The image directory contains **no** `rootfs/` tree and **no** application code or systemd unit (G7, G14).
 - Inside the image: `python3 -c "import pymysql, psycopg2, sqlalchemy, alembic, pydantic"` exits 0 (corporate stack baked, G15).
 - Inside the image: `command -v pip3 && command -v virtualenv && command -v git && command -v jq || true` — core runtime and helper tooling are present per Section 6.2 (adjust to the enumerated set).

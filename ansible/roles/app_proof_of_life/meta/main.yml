@@ -8,16 +8,14 @@ galaxy_info:
   author: ansible-bootc
   description: >
     Optional functional verification role that exercises the corporate application
-    OVER THE NETWORK from the control node after the external firewall port has
-    been deliberately opened (G19). Asserts: GET /health returns 200 with
+    on the host over loopback (G17). Asserts: GET /health returns 200 with
     database='connected'; the Alembic migration seed ('ansible-bootstrap') is
     visible in GET / records; POST /record succeeds with 201 and the echoed
     record; a malformed POST /record body is rejected with 400.
 
-    All tasks run via delegate_to: localhost targeting http://{{ ansible_host }}:{{ app_port }}/
-    — the real network path, not loopback. This role is invoked exclusively by
-    04_proof_of_life.yml (G17: never by site.yml, never a deployment prerequisite).
-    Each run adds one harmless write-probe row (documented non-idempotent behaviour).
+    This role is invoked by proof_of_life.yml (never by site.yml, never a
+    deployment prerequisite). Each run adds one harmless write-probe row
+    (documented non-idempotent behaviour).
   license: Apache-2.0
   min_ansible_version: "2.14"
 

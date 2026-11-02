@@ -1,0 +1,40 @@
+---
+# ansible/playbooks/expose_app.yml
+#
+# Deliberate, operator-invoked firewall exposure (G19 teaching moment).
+#
+# NOT imported by site.yml — this is NOT a deployment prerequisite.
+#
+# ARCHITECTURAL PRINCIPLE — "Does this belong in runtime config or derived image build?"
+# For the database image, every host runs MariaDB on 3306, so opening the service
+# belonged in the derived image build. For the application runtime image, the answer is
+# the exact opposite: RUNTIME CONFIGURATION, because different applications running on
+# the shared Python baseline expose different ports (8080, 5000, 8443) or no port at all.
+#
+# The application host therefore inherits the corporate security baseline firewall policy
+# from corp-base (SSH only). Running this playbook is the deliberate operational step that
+# opens the specific port required by this application (app_port).
+#
+# Before running this playbook:
+#   - app_release.yml left the service running and verified on loopback (127.0.0.1).
+#   - Default-deny (inherited from corp-base) keeps the host closed; external calls fail.
+#
+# After running this playbook:
+#   - Port {{ app_port }}/tcp is open in firewalld (permanent + immediate).
+#   - The application is reachable from the network.
+#
+# Run from the ansible/ directory (G11):
+#   ansible-playbook playbooks/expose_app.yml
+
+- name: Expose application port in firewall (deliberate operational step)
+  hosts: application
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Open application port in firewall
+      ansible.posix.firewalld:
+        port: "{{ app_port }}/tcp"
+        state: enabled
+        permanent: true
+        immediate: true

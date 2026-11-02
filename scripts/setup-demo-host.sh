@@ -30,9 +30,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 IMG_DB=corp-db
-IMG_APP=corp-app-img
-DB_NAME="${IMG_DB}-image.qcow2"
-APP_NAME="${IMG_APP}-image.qcow2"
+IMG_APP=corp-app
+DB_NAME="${IMG_DB}.qcow2"
+APP_NAME="${IMG_APP}.qcow2"
 LIBVIRT_IMAGES=/var/lib/libvirt/images
 DB_IMAGE="${LIBVIRT_IMAGES}/${DB_NAME}"
 APP_IMAGE="${LIBVIRT_IMAGES}/${APP_NAME}"
@@ -62,11 +62,14 @@ sudo dnf install -y "${PACKAGES[@]}"
 # ---------------------------------------------------------------------------
 # libvirt NSS — enables hostname resolution for VMs by name
 # ---------------------------------------------------------------------------
-if grep -q '\blibvirt\b' /etc/nsswitch.conf; then
+if grep -q '\blibvirt_guest\b' /etc/nsswitch.conf; then
     echo "==> libvirt NSS already configured, skipping."
+elif grep -q '\blibvirt\b' /etc/nsswitch.conf; then
+    echo "==> Adding libvirt_guest to existing libvirt NSS config..."
+    sudo sed -i '/^hosts:/ s/\blibvirt\b/libvirt libvirt_guest/' /etc/nsswitch.conf
 else
     echo "==> Configuring libvirt NSS..."
-    sudo sed -i '/^hosts:/ s/\bfiles\b/files libvirt/' /etc/nsswitch.conf
+    sudo sed -i '/^hosts:/ s/\bfiles\b/files libvirt libvirt_guest/' /etc/nsswitch.conf
 fi
 
 # ---------------------------------------------------------------------------
@@ -172,16 +175,21 @@ sudo image-builder build qcow2 --bootc-ref "localhost/${IMG_DB}:latest" --output
 # Without --replace existing VMs are left in place.
 # ---------------------------------------------------------------------------
 echo ""
-for VM in db01 app01; do
-    if virsh --connect qemu:///system list --all --name | grep -qx "${VM}"; then
-        if [[ "$REPLACE" == true ]]; then
+if [[ "$REPLACE" == true ]]; then
+    for VM in db01 app01; do
+        if virsh --connect qemu:///system dominfo "${VM}" &>/dev/null; then
             echo "==> --replace: removing existing VM ${VM}..."
             virsh --connect qemu:///system destroy "${VM}" 2>/dev/null || true
-            virsh --connect qemu:///system undefine "${VM}"
-        else
-            echo "==> VM ${VM} already exists, skipping."
-            continue
+            virsh --connect qemu:///system undefine "${VM}" --nvram 2>/dev/null \
+                || virsh --connect qemu:///system undefine "${VM}" 2>/dev/null || true
         fi
+    done
+fi
+
+for VM in db01 app01; do
+    if virsh --connect qemu:///system dominfo "${VM}" &>/dev/null; then
+        echo "==> VM ${VM} already exists, skipping."
+        continue
     fi
 
     if [[ "$VM" == db01 ]]; then

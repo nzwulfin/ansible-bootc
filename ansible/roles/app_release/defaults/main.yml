@@ -40,10 +40,11 @@ app_venv: "{{ app_root }}/venv"
 # /etc/systemd/system/corp-app.service (design-spec.md §9, app unit path agreement).
 app_service_name: "corp-app"
 
-# Full path to the Alembic CLI binary inside the venv.
-# The venv's Alembic binary carries the correct sys.path so the migration
-# environment (env.py) can import the app package and the baked corporate stack.
-alembic_bin: "{{ app_venv }}/bin/alembic"
+# Command used to invoke Alembic inside the venv.
+# Using the venv's Python interpreter with `-m alembic` is the standard pattern:
+# virtualenvs created with --system-site-packages inherit Python modules from the image
+# but do not copy third-party CLI wrapper scripts into the venv bin directory.
+alembic_bin: "{{ app_venv }}/bin/python3 -m alembic"
 
 # Path to the Alembic configuration file (alembic.ini) inside the migration tree.
 # The migration tree is deployed to app_root/migrations/ by app_deploy (§8.3 task 2).

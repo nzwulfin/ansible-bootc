@@ -175,7 +175,7 @@ graph TD
 quay.io/centos-bootc/centos-bootc:stream10
     └── corp-base:latest          ← platform/security team
           ├── corp-db:latest      ← database workload team (DBA / DB-platform)
-          └── corp-app-img:latest ← application RUNTIME baseline (app-platform / runtime team)
+          └── corp-app:latest     ← application RUNTIME baseline (app-platform / runtime team)
 ```
 
 Layering via `FROM corp-base:latest` is the organisational boundary: the platform
@@ -183,7 +183,7 @@ team owns the base image; workload teams derive from it. No multi-stage Containe
 builds are needed — nothing is compiled. Each layer adds only what its workload requires.
 
 Note the ownership nuance on the application side: the **app-platform/runtime team** owns
-the `corp-app-img` runtime baseline (the corporate Python stack), while the **app-feature
+the `corp-app` runtime baseline (the corporate Python stack), while the **app-feature
 team** owns the application payload deployed onto it (`app/corp-app/` → `/opt/corp-app`).
 The image answers "what Python runtime does every app host get?"; the payload answers
 "what is *this* app?".
@@ -260,11 +260,12 @@ ansible-bootc/
     │       └── application/vars.yml          db_host, app_port, app_root/app_venv/app_src/app_entrypoint
     ├── keys/                                 Generated key material — all gitignored
     ├── playbooks/
-    │   ├── 00_bootstrap.yml                  PSK probe → rotation → live key verify
-    │   ├── 01_database.yml                   DBA: DB foundation (no schema/seed)
-    │   ├── 02_app_deploy.yml                 App play 1: payload/venv/config/unit
-    │   ├── 03_app_release.yml                App play 2: migrate + start + readiness gate
-    │   └── 04_proof_of_life.yml              Optional: firewall-open + network verification
+    │   ├── bootstrap.yml                     PSK probe → rotation → live key verify
+    │   ├── database.yml                      DBA: DB foundation (no schema/seed)
+    │   ├── app_deploy.yml                    App play 1: payload/venv/config/unit
+    │   ├── app_release.yml                   App play 2: migrate + start + readiness gate
+    │   ├── proof_of_life.yml                 On-host verification: health, read, write
+    │   └── expose_app.yml                    Operator action: open external firewall port
     └── roles/
         ├── bootstrap_key_rotation/           PSK → live key rotation
         ├── mysql_instance/                   DB + account + firewall narrowing (schema-free)
@@ -460,7 +461,7 @@ Build in order: base first, then database and application (both depend on the ba
 # Working directory: repo root (ansible-bootc/)
 podman build -t corp-base:latest images/base/
 podman build -t corp-db:latest images/database/
-podman build -t corp-app-img:latest images/application/
+podman build -t corp-app:latest images/application/
 ```
 
 ### Step 3 — Provision VMs
@@ -542,65 +543,64 @@ credential), which requires placement in `all/` rather than any group-specific v
 ansible-playbook site.yml
 ```
 
-`site.yml` imports the four **deployment** playbooks in order (proof-of-life is deliberately
-excluded — it is a separate, optional exercise):
+`site.yml` imports the four deployment playbooks in sequence:
 
-1. `playbooks/00_bootstrap.yml` — PSK probe → key rotation → live key verify (platform)
-2. `playbooks/01_database.yml` — DB foundation: database, account, firewall narrowing (DBA; no schema/seed)
-3. `playbooks/02_app_deploy.yml` — app play 1: payload to `/opt/corp-app`, venv, pinned extras, config, unit (not started)
-4. `playbooks/03_app_release.yml` — app play 2: Alembic migrate (schema + seed), enable/start, loopback readiness gate
+1. `playbooks/bootstrap.yml` — PSK probe → key rotation → live key verify (platform)
+2. `playbooks/database.yml` — DB foundation: database, account, firewall narrowing (DBA; no schema/seed)
+3. `playbooks/app_deploy.yml` — app play 1: payload to `/opt/corp-app`, venv, pinned extras, config, unit (not started)
+4. `playbooks/app_release.yml` — app play 2: Alembic migrate (schema + seed), enable/start, loopback readiness gate
 
 **Or run individually:**
 
 ```bash
 # Working directory: ansible/
-ansible-playbook playbooks/00_bootstrap.yml
-ansible-playbook playbooks/01_database.yml
-ansible-playbook playbooks/02_app_deploy.yml
-ansible-playbook playbooks/03_app_release.yml
+ansible-playbook playbooks/bootstrap.yml
+ansible-playbook playbooks/database.yml
+ansible-playbook playbooks/app_deploy.yml
+ansible-playbook playbooks/app_release.yml
 ```
 
-### Step 8 — (Optional) Prove it is alive — and learn the firewall lesson
+### Step 8 — Test, Troubleshoot, and Expose
 
-After release, the service is running and healthy **on the host's loopback**, yet it is
-**unreachable from the network** — the firewall's default-deny zone has no app port open.
-This is intentional (see "Firewall architecture" in Practitioner Notes). Confirm it:
+Follow the operator workflow to experience the default-deny firewall posture:
 
-```bash
-# From the control node (over the network) — FAILS: port not open yet
-# (replace 192.168.122.20 with your app01 IP from hosts.yml)
-curl -s --max-time 5 http://192.168.122.20:8080/health || echo "unreachable (expected: default-deny)"
+1. **Attempt external curl (Expected to fail):**
+   ```bash
+   # From your control node terminal:
+   curl -s --max-time 3 http://app01:8080/health || echo "Blocked by firewall (Expected default-deny)"
+   ```
+   *The connection times out because the application host enforces the corporate security baseline firewall posture inherited directly from `corp-base` (which opens SSH only).*
 
-# On the application host (over loopback) — SUCCEEDS: the service genuinely works
-curl -s http://127.0.0.1:8080/health
-# Expected: {"database": "connected", "count": 1, "detail": "ok"}
-```
+2. **Verify host connectivity (Is the VM alive?):**
+   ```bash
+   ping -c 1 app01
+   ```
+   *The ping returns immediately. This proves `app01` is online, network routing is intact, and `libvirt-nss` is actively resolving the hostname — isolating the failure directly to the host's firewall.*
 
-The optional proof-of-life playbook performs the deliberate firewall-exposure step and then
-verifies the system **over the network** (health, seed visibility, a write, and input
-validation):
+3. **Verify app-to-database on the host (Proof of Life):**
+   Run the verification playbook against `app01` to confirm the application is healthy and actively communicating with MariaDB:
+   ```bash
+   # Working directory: ansible/
+   ansible-playbook playbooks/proof_of_life.yml
+   ```
+   *All checks succeed on-host over loopback (health connected, seed visible, live write probe, input validation).*
 
-```bash
-# Working directory: ansible/  — NOT part of site.yml; run by hand
-ansible-playbook playbooks/04_proof_of_life.yml
-```
+4. **Troubleshoot the firewall:**
+   The host is reachable via ICMP, the application is healthy on loopback, and it communicates with MariaDB — so why did external `curl` fail? The application host is running the corporate security baseline firewall posture inherited from `corp-base`, which opens SSH only. Port 8080 has not yet been exposed by the operator.
 
-After it runs, the same external call now succeeds:
+5. **Expose the port:**
+   Run the operational exposure playbook to open port 8080:
+   ```bash
+   # Working directory: ansible/
+   ansible-playbook playbooks/expose_app.yml
+   ```
 
-```bash
-# From the control node (over the network) — now SUCCEEDS
-curl -s http://192.168.122.20:8080/
-# Expected (abbreviated):
-# {"service": "corp-app", "status": "operational",
-#  "database": {"status": "connected", "name": "corpapp", "host": "192.168.122.10"},
-#  "count": 1, "records": [{"id": 1, "message": "ansible-bootstrap", ...}]}
-```
-
-The `ansible-bootstrap` record visible in `GET /` is the app-owned-bootstrap proof: the app's
-**Alembic migration** (run by `03_app_release`) created the `service_records` schema and seeded
-that row, and the application reads it over the network from the database host. The before/after
-`curl` contrast is the firewall lesson: *working* and *reachable* are two different states, and
-exposure is a deliberate, auditable act.
+6. **Test again from your workstation:**
+   Now external network traffic reaches the application:
+   ```bash
+   curl -s http://app01:8080/health | jq .
+   curl -s http://app01:8080/ | jq .
+   ```
 
 ---
 
@@ -615,7 +615,7 @@ needed — nothing in this pattern is compiled, so there is no "build artefact"
 separation requirement. The layered `FROM` is the full story.
 
 On the application side there is a second boundary *inside* the layer: the
-**app-platform/runtime team** owns the `corp-app-img` runtime baseline (the corporate Python
+**app-platform/runtime team** owns the `corp-app` runtime baseline (the corporate Python
 stack), while the **app-feature team** owns the payload (`app/corp-app/`) that Ansible deploys to
 `/opt/corp-app`. The image answers "what runtime does every app host get?"; the payload answers
 "what is this app?". The DBA/DB-platform team owns `corp-db` and the DB foundation play.
@@ -641,11 +641,15 @@ rebuild + `bootc upgrade`, governed by the runtime team — not an ad-hoc per-ho
 ### Standard deployment target: `/opt/corp-app`
 
 Applications deploy to `/opt/corp-app`, with the virtualenv at `/opt/corp-app/venv`, config at
-`/etc/corp-app/config.ini`, and the unit at `/etc/systemd/system/corp-app.service`. On bootc,
-`/opt` resolves under `/var/opt` — persistent, applied at install only, preserved across upgrade and
-rollback — which is exactly the right zone for Ansible-owned instance payload, just like
-`/var/lib/mysql`. This is the expected, conventional Linux place for add-on application software,
-and it keeps the image (`/usr`, immutable) cleanly separate from the app (instance state).
+`/etc/corp-app/config.ini`, and the unit at `/etc/systemd/system/corp-app.service`.
+
+**How bootc handles `/opt` cleanly:** In bootc the root filesystem (`/`) is mounted read-only.
+Rather than modifying the system-level `/opt` root directory, the application runtime image
+follows the documented bootc pattern ("symlink just the parts of `/opt` needed into `/var`"):
+it creates `/var/opt/corp-app` on persistent storage and links `/opt/corp-app -> /var/opt/corp-app`.
+This gives Ansible a writable, persistent deployment target on `/var` that survives upgrades and
+rollbacks (just like `/var/lib/mysql`) while preserving standard FHS path expectations for
+systemd and operators without any root filesystem workarounds.
 
 ### Deploy vs. release vs. proof-of-life
 
@@ -701,7 +705,7 @@ the configuration lives:
 | Kind of change | Example | Day-2 Workflow |
 |---|---|---|
 | Platform standard | SSH hardening update, base admin tooling | Rebuild `corp-base` → rebuild derived workload images → trigger `bootc upgrade` on hosts |
-| Workload standard | MariaDB resource limits, TuneD profile, app release | Rebuild workload image (`corp-db` / `corp-app-img`) → trigger `bootc upgrade` on hosts |
+| Workload standard | MariaDB resource limits, TuneD profile, app release | Rebuild workload image (`corp-db` / `corp-app`) → trigger `bootc upgrade` on hosts |
 | Instance runtime state | DB password rotation, host IP change, app config | Update `ansible/inventory/` or vault → re-run Ansible playbooks |
 
 **Applying image updates atomically:**
@@ -810,28 +814,21 @@ This is the bake-time/runtime split made concrete: bake what is safe for the who
 (broad open for any test environment), narrow what is instance-specific (restrict to the
 actual application host IP) at runtime via Ansible.
 
-**The application port is the opposite case — and a deliberate teaching moment.** The
-application runtime image opens **no** port, and neither `02_app_deploy` nor `03_app_release`
-opens one either. After release the service binds `0.0.0.0` and is fully working, but the
-default-deny `public` zone has no app port open, so it is **unreachable from the network**. The
-readiness gate in release and the loopback `curl` both pass because loopback traffic bypasses the
-zone. Opening the port is a separate, clearly-labelled, user-invoked step inside
-`04_proof_of_life.yml`:
+### The application port: runtime configuration vs. derived image build
 
-```yaml
-# Deliberate exposure — the teaching moment (04_proof_of_life.yml)
-- ansible.posix.firewalld:
-    port: "{{ app_port }}/tcp"
-    state: enabled
-    permanent: true
-    immediate: true
-```
+The central design question returns: **Does this belong in runtime configuration or the derived image build?**
 
-The lesson is explicit and worth internalising: **"working" and "reachable" are different
-states.** A service can be healthy on loopback while every external client is correctly refused.
-Exposure is an instance policy decision — auditable, reversible, and owned by whoever runs the
-exposure step — not a property baked into an image or a side effect of deployment. The before/after
-`curl` contrast in Step 8 is the whole point.
+- **Database workload (`corp-db`):** Every host running this image is a MariaDB server listening on port 3306. Because the workload port is identical across all database hosts, opening the MySQL service in firewalld belongs in the **derived image build** (`firewall-offline-cmd --add-service=mysql`).
+- **Application runtime baseline (`corp-app`):** Here the answer is the exact opposite: **runtime configuration, because different applications will expose different ports.** One app might listen on port 8080, another on 5000, 8443, or 9000 — and background worker services might listen on no network port at all! A reusable application server runtime image *cannot and must not bake a specific application port open*.
+
+Consequently, the application host's initial firewall posture is **inherited directly from the corporate base image (`corp-base`)**, which enables firewalld and strictly opens SSH only. Neither `app_deploy` nor `app_release` touches the firewall.
+
+This creates the deliberate **G19 teaching moment**:
+1. After release, the service is running and healthy on loopback (`127.0.0.1:8080/health`), but external traffic is rejected because the host is enforcing the inherited corporate baseline `public` zone where no application port is open.
+2. The operator runs `playbooks/expose_app.yml`, which explicitly opens the port matching `{{ app_port }}` for *this specific application*.
+3. The lesson is twofold:
+   - **"Working" and "reachable" are different states.** A service can be healthy on loopback while every external client is correctly refused.
+   - **Port exposure is an application-specific runtime decision**, owned by the deployment configuration, not baked into a shared runtime baseline.
 
 **Why the base image explicitly opens the `ssh` service:** firewalld's default zone
 (`public`) drops all incoming traffic. An image that installs firewalld but does not
@@ -1018,10 +1015,10 @@ version or a venv rebuild is rolled out.
 | `mariadb-backup` | database | DBA physical backup/recovery — frequently needed, host-coupled |
 | `lsof`, `strace`, `procps-ng`, `sysstat` | database | DBA host diagnostics (open files, syscalls, `ps`/`vmstat`, `iostat`/`sar`) |
 | `jq` | database | JSON inspection for logs/API output |
-| `python3`, `python3-pip`, `python3-virtualenv` | application | Corporate Python runtime core: interpreter + venv tooling for app deployment |
+| `python3`, `python3-pip` (RPM); `virtualenv` (pip) | application | Corporate Python runtime core: interpreter + venv tooling for app deployment |
 | `ca-certificates`, `tzdata` | application | TLS trust and timezone data for the runtime baseline |
 | `git`, `tar`, `gzip`, `unzip` | application | Helper tooling for payload/artifact handling |
-| `python3-setuptools`, `python3-wheel` | application | Python packaging support |
+| `python3-setuptools` (RPM); `wheel` (pip) | application | Python packaging support |
 | `python3-PyMySQL`, `python3-psycopg2` | application | Corporate DB driver set (MariaDB/MySQL + PostgreSQL) — standardized centrally |
 | `SQLAlchemy`, `Alembic`, `Pydantic` | application | Corporate data-abstraction layer (RPM where packaged, else pinned build-time pip) |
 
@@ -1119,8 +1116,9 @@ third:
 | AAP Job | Playbook(s) | Machine credential |
 |---------|-------------|--------------------|
 | **Bootstrap** | `playbooks/00_bootstrap.yml` | Bootstrap credential (`ansible/keys/id_bootstrap`) |
-| **Workload** | `playbooks/01_database.yml` + `playbooks/02_app_deploy.yml` + `playbooks/03_app_release.yml` | Live credential (`ansible/keys/id_live`) |
-| **Proof-of-life (optional)** | `playbooks/04_proof_of_life.yml` | Live credential (`ansible/keys/id_live`) |
+| **Workload** | `playbooks/database.yml` + `playbooks/app_deploy.yml` + `playbooks/app_release.yml` | Live credential (`ansible/keys/id_live`) |
+| **Proof-of-life (optional)** | `playbooks/proof_of_life.yml` | Live credential (`ansible/keys/id_live`) |
+| **Firewall expose (optional)** | `playbooks/expose_app.yml` | Live credential (`ansible/keys/id_live`) |
 
 **Bootstrap job:** Uses the bootstrap private key. Plays 1 and 2 probe and rotate the
 PSK. Play 3 (live-key verify) uses the live key — but under AAP's single-credential
@@ -1181,13 +1179,15 @@ extra-vars log. Custom Credentials are preferred for secrets.
 ### Running site.yml standalone vs. under AAP
 
 ```
-Standalone:   cd ansible/ && ansible-playbook site.yml           (00 → 01 → 02 → 03)
-              cd ansible/ && ansible-playbook playbooks/04_proof_of_life.yml   (optional)
-AAP Job 1:    ansible-playbook playbooks/00_bootstrap.yml        (bootstrap credential)
-AAP Job 2:    ansible-playbook playbooks/01_database.yml         (live credential)
-              ansible-playbook playbooks/02_app_deploy.yml       (live credential, same job)
-              ansible-playbook playbooks/03_app_release.yml      (live credential, same job)
-AAP Job 3:    ansible-playbook playbooks/04_proof_of_life.yml    (live credential, optional)
+Standalone:   cd ansible/ && ansible-playbook site.yml
+              cd ansible/ && ansible-playbook playbooks/proof_of_life.yml   (verify on-host)
+              cd ansible/ && ansible-playbook playbooks/expose_app.yml      (open firewall)
+AAP Job 1:    ansible-playbook playbooks/bootstrap.yml   (bootstrap credential, --skip-tags live_key_verify)
+AAP Job 2:    ansible-playbook playbooks/database.yml    (live credential)
+              ansible-playbook playbooks/app_deploy.yml  (live credential, same job)
+              ansible-playbook playbooks/app_release.yml (live credential, same job)
+AAP Job 3:    ansible-playbook playbooks/proof_of_life.yml (live credential, optional)
+AAP Job 4:    ansible-playbook playbooks/expose_app.yml    (live credential, optional)
 ```
 
 No playbook files are changed between standalone and AAP operation. The only difference

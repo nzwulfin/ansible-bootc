@@ -46,14 +46,14 @@ FROM corp-base:latest
 #   python3            The Python interpreter. Present in the base image;
 #                      listed explicitly so the corporate runtime set is
 #                      self-documenting and the full stack is visible in one
-#                      place (G15).
+#                      place (G15). Also provides the standard library `venv`
+#                      module (`python3 -m venv`).
 #   python3-pip        pip: required for build-time pip installs (Tier 3 below)
 #                      and for Ansible's app_deploy role to install app-specific
 #                      extras into the virtualenv (G9 exception scope).
-#   python3-virtualenv virtualenv: used by app_deploy to create
-#                      /opt/corp-app/venv with --system-site-packages so the
-#                      baked corporate stack is visible without re-installation
-#                      (G14, G15).
+#   (virtualenv, wheel) On CentOS Stream 10, virtualenv and wheel are not
+#                      distributed as standalone BaseOS/AppStream RPMs; they
+#                      are installed in Step 2 via requirements-corporate.txt.
 #   ca-certificates    TLS trust anchors; required for encrypted database
 #                      connections and any HTTPS traffic from the application.
 #   tzdata             Timezone data; required for correct timestamp handling
@@ -73,9 +73,6 @@ FROM corp-base:latest
 #                      ZIP-format payload delivery.
 #   python3-setuptools setuptools build backend; required when building or
 #                      installing packages from source distributions.
-#   python3-wheel      Binary wheel format support; accelerates pip installs
-#                      and is required by C-extension packages such as
-#                      psycopg2.
 #
 # ── Tier 3: Corporate DB drivers (RPM-packaged portion) ──────────────────────
 #
@@ -104,7 +101,6 @@ FROM corp-base:latest
 RUN dnf install -y --nodocs \
         python3 \
         python3-pip \
-        python3-virtualenv \
         ca-certificates \
         tzdata \
         git \
@@ -112,7 +108,6 @@ RUN dnf install -y --nodocs \
         gzip \
         unzip \
         python3-setuptools \
-        python3-wheel \
         python3-PyMySQL \
         python3-psycopg2 \
     && dnf clean all
@@ -136,3 +131,11 @@ COPY requirements-corporate.txt /tmp/requirements-corporate.txt
 RUN pip3 install --no-cache-dir \
         --requirement /tmp/requirements-corporate.txt \
     && rm /tmp/requirements-corporate.txt
+
+# ─── Step 3: Application host directory in /var exposed via /opt ──────────────
+#
+# On bootc, the root filesystem (/) is mounted read-only while /var is persistent
+# and writable. Rather than modifying the system /opt directory, symlink just the
+# specific application subdirectory into /var/opt (the recommended bootc pattern)
+# so that Ansible can deploy the payload to /opt/corp-app on persistent storage.
+RUN mkdir -p /var/opt/corp-app && ln -s /var/opt/corp-app /opt/corp-app
