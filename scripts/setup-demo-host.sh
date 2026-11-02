@@ -30,9 +30,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 IMG_DB=corp-db
-IMG_APP=corp-app-img
-DB_NAME="corp-db.qcow2"
-APP_NAME="corp-app.qcow2"
+IMG_APP=corp-app
+DB_NAME="${IMG_DB}.qcow2"
+APP_NAME="${IMG_APP}.qcow2"
 LIBVIRT_IMAGES=/var/lib/libvirt/images
 DB_IMAGE="${LIBVIRT_IMAGES}/${DB_NAME}"
 APP_IMAGE="${LIBVIRT_IMAGES}/${APP_NAME}"
@@ -181,12 +181,6 @@ if [[ "$REPLACE" == true ]]; then
                 || virsh --connect qemu:///system undefine "${VM}" 2>/dev/null || true
         fi
     done
-    echo "==> --replace: cleaning up old disk images in ${LIBVIRT_IMAGES}..."
-    sudo rm -f "${DB_IMAGE}" "${APP_IMAGE}" \
-               "${LIBVIRT_IMAGES}/corp-database-image.qcow2" \
-               "${LIBVIRT_IMAGES}/corp-application-image.qcow2" \
-               "${LIBVIRT_IMAGES}/corp-app-img-image.qcow2" \
-               "${LIBVIRT_IMAGES}/corp-db-image.qcow2" 2>/dev/null || true
 fi
 
 for VM in db01 app01; do

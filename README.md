@@ -175,7 +175,7 @@ graph TD
 quay.io/centos-bootc/centos-bootc:stream10
     └── corp-base:latest          ← platform/security team
           ├── corp-db:latest      ← database workload team (DBA / DB-platform)
-          └── corp-app-img:latest ← application RUNTIME baseline (app-platform / runtime team)
+          └── corp-app:latest     ← application RUNTIME baseline (app-platform / runtime team)
 ```
 
 Layering via `FROM corp-base:latest` is the organisational boundary: the platform
@@ -183,7 +183,7 @@ team owns the base image; workload teams derive from it. No multi-stage Containe
 builds are needed — nothing is compiled. Each layer adds only what its workload requires.
 
 Note the ownership nuance on the application side: the **app-platform/runtime team** owns
-the `corp-app-img` runtime baseline (the corporate Python stack), while the **app-feature
+the `corp-app` runtime baseline (the corporate Python stack), while the **app-feature
 team** owns the application payload deployed onto it (`app/corp-app/` → `/opt/corp-app`).
 The image answers "what Python runtime does every app host get?"; the payload answers
 "what is *this* app?".
@@ -460,7 +460,7 @@ Build in order: base first, then database and application (both depend on the ba
 # Working directory: repo root (ansible-bootc/)
 podman build -t corp-base:latest images/base/
 podman build -t corp-db:latest images/database/
-podman build -t corp-app-img:latest images/application/
+podman build -t corp-app:latest images/application/
 ```
 
 ### Step 3 — Provision VMs
@@ -615,7 +615,7 @@ needed — nothing in this pattern is compiled, so there is no "build artefact"
 separation requirement. The layered `FROM` is the full story.
 
 On the application side there is a second boundary *inside* the layer: the
-**app-platform/runtime team** owns the `corp-app-img` runtime baseline (the corporate Python
+**app-platform/runtime team** owns the `corp-app` runtime baseline (the corporate Python
 stack), while the **app-feature team** owns the payload (`app/corp-app/`) that Ansible deploys to
 `/opt/corp-app`. The image answers "what runtime does every app host get?"; the payload answers
 "what is this app?". The DBA/DB-platform team owns `corp-db` and the DB foundation play.
@@ -701,7 +701,7 @@ the configuration lives:
 | Kind of change | Example | Day-2 Workflow |
 |---|---|---|
 | Platform standard | SSH hardening update, base admin tooling | Rebuild `corp-base` → rebuild derived workload images → trigger `bootc upgrade` on hosts |
-| Workload standard | MariaDB resource limits, TuneD profile, app release | Rebuild workload image (`corp-db` / `corp-app-img`) → trigger `bootc upgrade` on hosts |
+| Workload standard | MariaDB resource limits, TuneD profile, app release | Rebuild workload image (`corp-db` / `corp-app`) → trigger `bootc upgrade` on hosts |
 | Instance runtime state | DB password rotation, host IP change, app config | Update `ansible/inventory/` or vault → re-run Ansible playbooks |
 
 **Applying image updates atomically:**

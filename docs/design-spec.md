@@ -1166,8 +1166,8 @@ Each task is a discrete, independently reviewable unit. Dependencies are listed;
 **Applicable constraints:** G7, G9, G14, G15, G16, G18, G19.
 
 **Acceptance criteria:**
-- `podman build -t corp-app-img:latest images/application/` completes without error.
-- `bootc container lint corp-app-img:latest` exits 0.
+- `podman build -t corp-app:latest images/application/` completes without error.
+- `bootc container lint corp-app:latest` exits 0.
 - The image directory contains **no** `rootfs/` tree and **no** application code or systemd unit (G7, G14).
 - Inside the image: `python3 -c "import pymysql, psycopg2, sqlalchemy, alembic, pydantic"` exits 0 (corporate stack baked, G15).
 - Inside the image: `command -v pip3 && command -v virtualenv && command -v git && command -v jq || true` — core runtime and helper tooling are present per Section 6.2 (adjust to the enumerated set).
