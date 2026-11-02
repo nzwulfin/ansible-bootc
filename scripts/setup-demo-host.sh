@@ -172,16 +172,21 @@ sudo image-builder build qcow2 --bootc-ref "localhost/${IMG_DB}:latest" --output
 # Without --replace existing VMs are left in place.
 # ---------------------------------------------------------------------------
 echo ""
-for VM in db01 app01; do
-    if virsh --connect qemu:///system list --all --name | grep -qx "${VM}"; then
-        if [[ "$REPLACE" == true ]]; then
+if [[ "$REPLACE" == true ]]; then
+    for VM in db01 app01; do
+        if virsh --connect qemu:///system dominfo "${VM}" &>/dev/null; then
             echo "==> --replace: removing existing VM ${VM}..."
             virsh --connect qemu:///system destroy "${VM}" 2>/dev/null || true
-            virsh --connect qemu:///system undefine "${VM}"
-        else
-            echo "==> VM ${VM} already exists, skipping."
-            continue
+            virsh --connect qemu:///system undefine "${VM}" --nvram 2>/dev/null \
+                || virsh --connect qemu:///system undefine "${VM}" 2>/dev/null || true
         fi
+    done
+fi
+
+for VM in db01 app01; do
+    if virsh --connect qemu:///system dominfo "${VM}" &>/dev/null; then
+        echo "==> VM ${VM} already exists, skipping."
+        continue
     fi
 
     if [[ "$VM" == db01 ]]; then
