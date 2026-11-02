@@ -569,7 +569,7 @@ Follow the operator workflow to experience the default-deny firewall posture:
    # From your control node terminal:
    curl -s --max-time 3 http://app01:8080/health || echo "Blocked by firewall (Expected default-deny)"
    ```
-   *The connection times out because the host's firewall is default-deny.*
+   *The connection times out because the application host enforces the corporate security baseline firewall posture inherited directly from `corp-base` (which opens SSH only).*
 
 2. **Verify host connectivity (Is the VM alive?):**
    ```bash
@@ -586,7 +586,7 @@ Follow the operator workflow to experience the default-deny firewall posture:
    *All checks succeed on-host over loopback (health connected, seed visible, live write probe, input validation).*
 
 4. **Troubleshoot the firewall:**
-   The host is reachable via ICMP, the application is healthy, and it communicates with MariaDB — so why did external `curl` fail? The application host's firewall is default-deny and has not exposed port 8080.
+   The host is reachable via ICMP, the application is healthy on loopback, and it communicates with MariaDB — so why did external `curl` fail? The application host is running the corporate security baseline firewall posture inherited from `corp-base`, which opens SSH only. Port 8080 has not yet been exposed by the operator.
 
 5. **Expose the port:**
    Run the operational exposure playbook to open port 8080:
@@ -814,28 +814,21 @@ This is the bake-time/runtime split made concrete: bake what is safe for the who
 (broad open for any test environment), narrow what is instance-specific (restrict to the
 actual application host IP) at runtime via Ansible.
 
-**The application port is the opposite case — and a deliberate teaching moment.** The
-application runtime image opens **no** port, and neither `02_app_deploy` nor `03_app_release`
-opens one either. After release the service binds `0.0.0.0` and is fully working, but the
-default-deny `public` zone has no app port open, so it is **unreachable from the network**. The
-readiness gate in release and the loopback `curl` both pass because loopback traffic bypasses the
-zone. Opening the port is a separate, clearly-labelled, user-invoked step inside
-`04_proof_of_life.yml`:
+### The application port: runtime configuration vs. derived image build
 
-```yaml
-# Deliberate exposure — the teaching moment (04_proof_of_life.yml)
-- ansible.posix.firewalld:
-    port: "{{ app_port }}/tcp"
-    state: enabled
-    permanent: true
-    immediate: true
-```
+The central design question returns: **Does this belong in runtime configuration or the derived image build?**
 
-The lesson is explicit and worth internalising: **"working" and "reachable" are different
-states.** A service can be healthy on loopback while every external client is correctly refused.
-Exposure is an instance policy decision — auditable, reversible, and owned by whoever runs the
-exposure step — not a property baked into an image or a side effect of deployment. The before/after
-`curl` contrast in Step 8 is the whole point.
+- **Database workload (`corp-db`):** Every host running this image is a MariaDB server listening on port 3306. Because the workload port is identical across all database hosts, opening the MySQL service in firewalld belongs in the **derived image build** (`firewall-offline-cmd --add-service=mysql`).
+- **Application runtime baseline (`corp-app`):** Here the answer is the exact opposite: **runtime configuration, because different applications will expose different ports.** One app might listen on port 8080, another on 5000, 8443, or 9000 — and background worker services might listen on no network port at all! A reusable application server runtime image *cannot and must not bake a specific application port open*.
+
+Consequently, the application host's initial firewall posture is **inherited directly from the corporate base image (`corp-base`)**, which enables firewalld and strictly opens SSH only. Neither `app_deploy` nor `app_release` touches the firewall.
+
+This creates the deliberate **G19 teaching moment**:
+1. After release, the service is running and healthy on loopback (`127.0.0.1:8080/health`), but external traffic is rejected because the host is enforcing the inherited corporate baseline `public` zone where no application port is open.
+2. The operator runs `playbooks/expose_app.yml`, which explicitly opens the port matching `{{ app_port }}` for *this specific application*.
+3. The lesson is twofold:
+   - **"Working" and "reachable" are different states.** A service can be healthy on loopback while every external client is correctly refused.
+   - **Port exposure is an application-specific runtime decision**, owned by the deployment configuration, not baked into a shared runtime baseline.
 
 **Why the base image explicitly opens the `ssh` service:** firewalld's default zone
 (`public`) drops all incoming traffic. An image that installs firewalld but does not
