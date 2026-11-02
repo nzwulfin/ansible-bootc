@@ -62,25 +62,15 @@
   # (mode: preserve).
 
 - name: Create virtualenv with system site-packages
-  ansible.builtin.pip:
-    name: []
-    virtualenv: "{{ app_venv }}"
-    virtualenv_site_packages: true
-    virtualenv_command: "python3 -m venv"
-  # CRITICAL (G14, G15): virtualenv_site_packages: true creates the venv with
-  # --system-site-packages, making the baked corporate Python stack (SQLAlchemy,
-  # Alembic, Pydantic, python3-PyMySQL, python3-psycopg2) visible inside the
-  # venv without re-installation or re-pinning (design-spec.md §6.2, G15).
+  ansible.builtin.command:
+    cmd: "python3 -m venv --system-site-packages {{ app_venv }}"
+    creates: "{{ app_venv }}/bin/activate"
+  # CRITICAL (G14, G15): --system-site-packages makes the baked corporate Python
+  # stack (SQLAlchemy, Alembic, Pydantic, python3-PyMySQL, python3-psycopg2) visible
+  # inside the venv without re-installation or re-pinning (design-spec.md §6.2, G15).
   #
-  # name: [] — no packages to install; this task solely ensures the venv exists
-  # with the correct system-site-packages flag. App-specific extras are installed
-  # from requirements.txt in the next task.
-  #
-  # virtualenv_command: "python3 -m venv" uses Python's built-in venv module
-  # rather than the legacy virtualenv tool, consistent with CentOS Stream 10.
-  #
-  # This task is idempotent: if the venv already exists with system-site-packages
-  # enabled, it is a no-op.
+  # python3 -m venv is the standard Python 3 tool; creates: ensures idempotency with
+  # zero warnings. App-specific extras are installed from requirements.txt in the next task.
 
 - name: Install app-specific pinned extras from requirements.txt
   ansible.builtin.pip:
