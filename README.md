@@ -268,7 +268,7 @@ ansible-bootc/
     │   └── expose_app.yml                    Operator action: open external firewall port
     └── roles/
         ├── bootstrap_key_rotation/           PSK → live key rotation
-        ├── mariadb_instance/                   DB + account + firewall narrowing (schema-free)
+        ├── mariadb_instance/                 DB + account + firewall narrowing (schema-free)
         ├── app_deploy/                       Payload, venv, pinned extras, config, unit
         ├── app_release/                      Alembic migrate, enable/start, readiness gate
         └── app_proof_of_life/                Network functional verification (exercise)
@@ -789,6 +789,12 @@ The database image ships with the MySQL service open in the firewall:
 # Containerfile — bake-time posture
 RUN firewall-offline-cmd --add-service=mysql
 ```
+
+**Naming note:** MariaDB is a drop-in MySQL replacement, so upstream defaults keep
+MySQL-compatible names — datadir `/var/lib/mysql`, socket `mysql.sock`, firewalld
+service `mysql`, and config section `[mysqld]`. Only names this project controls — the
+`mariadb_instance` role and the `ansible.mariadb` collection in `requirements.yml` —
+say MariaDB; the MySQL-compatible names are not typos.
 
 This broad open is intentional for test environments: any host can reach the database
 port without any runtime configuration. The `mariadb_instance` Ansible role narrows it at

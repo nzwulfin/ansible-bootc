@@ -118,7 +118,7 @@ ansible-bootc/
     │   └── expose_app.yml            ← optional user action: open firewall port
     └── roles/
         ├── bootstrap_key_rotation/
-        ├── mariadb_instance/           ← DB foundation (infra), schema-free
+        ├── mariadb_instance/         ← DB foundation (infra), schema-free
         ├── app_deploy/               ← payload, venv, pinned deps, config, unit
         ├── app_release/              ← Alembic migrate, enable/start, readiness gate
         └── app_proof_of_life/        ← functional GET/POST + DB cross-checks (exercise)

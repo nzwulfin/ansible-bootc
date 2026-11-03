@@ -15,6 +15,12 @@
 #   G9  — no package installation; all dependencies baked in the database image.
 #   G17 — no mariadb_table_name or mariadb_seed_message; schema/seed not here.
 
+# Naming note: MariaDB is a drop-in MySQL replacement, so upstream defaults keep
+# MySQL-compatible names: datadir /var/lib/mysql, socket mysql.sock, firewalld
+# service mysql, and config section [mysqld]. Only names this project controls —
+# the role, and the ansible.mariadb collection in requirements.yml — say MariaDB;
+# the MySQL-compatible names are not typos.
+#
 # Path to the MariaDB unix socket.
 # Root access on a fresh install uses the socket — no root password is set.
 # This is the maintenance path for all initial DB provisioning tasks.

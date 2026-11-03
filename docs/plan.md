@@ -304,7 +304,7 @@ ansible-bootc/
     │   └── 04_proof_of_life.yml         # Optional user exercise: firewall-open + functional checks
     ├── roles/
     │   ├── bootstrap_key_rotation/
-    │   ├── mariadb_instance/              # DB foundation (schema-free)
+    │   ├── mariadb_instance/            # DB foundation (schema-free)
     │   ├── app_deploy/                  # incl. templates/ for config.ini + the systemd unit
     │   ├── app_release/                 # Alembic migrate, enable/start, loopback readiness gate
     │   └── app_proof_of_life/           # Network functional verification (exercise)
