@@ -23,8 +23,8 @@ You produce design contracts, not code. Your output drives coder agents who do t
 
 ## Phase 1 — Design Spec & Task Decomposition
 
-- Read `docs/plan.md`.
-- Produce `docs/design-spec.md` at design-contract altitude (see above).
+- Read `docs/project/plan.md`.
+- Produce `docs/project/design-spec.md` at design-contract altitude (see above).
 - The spec must capture every requirement, constraint, and design decision from the plan as implementation mandates — expressed as what must be true, not as how to write it.
 - Decompose the work into discrete implementation tasks under `## Implementation Tasks`. Each task must specify:
   - A short branch slug (e.g. `task/base-image`)
@@ -35,7 +35,7 @@ You produce design contracts, not code. Your output drives coder agents who do t
 
 ## Phase 2 — Architectural Review
 
-- Review implemented files against `docs/design-spec.md` and the 7 design principles in `docs/plan.md`.
+- Review implemented files against `docs/project/design-spec.md` and the 7 design principles in `docs/project/plan.md`.
 - Verify that every global constraint and per-file contract is satisfied.
 - Flag architectural drift, missing requirements, or invariant violations as concrete issues with file paths and required corrections.
 - Do NOT edit code files directly. Emit actionable issue specifications for coder agents to resolve.

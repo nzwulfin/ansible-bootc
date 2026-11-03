@@ -27,10 +27,10 @@ The layering and the Ansible phase split express an explicit ownership model. Ea
 
 | Layer / phase | Owner | Responsibility |
 |---------------|-------|----------------|
-| Base image | Platform/Security team | OS hardening, management account, SSH baseline, firewall + tuned baseline |
-| Database image + `01_database` | DBA / DB-platform team | MariaDB runtime standard, DB operator tooling, and the **DB foundation** (database, account + privileges, firewall narrowing) — **not** application schema |
-| Application **runtime** image + corporate Python standard | App-platform / runtime team | A reusable corporate Python runtime baseline and the single, centrally-governed Python stack every app inherits |
-| Application payload + `02_app_deploy` / `03_app_release` | App-feature team | The app's code, pinned extras, and Alembic migrations; the two app-owned plays (deploy, then release/go-live) |
+| Base image | Infrastructure / Operations | OS hardening, management account, SSH baseline, firewall + tuned baseline |
+| Database image + `database.yml` | DBA | MariaDB runtime standard, DB operator tooling, and the **DB foundation** (database, account + privileges, firewall narrowing) — **not** application schema |
+| Application **runtime** image + corporate Python standard | Middleware | A reusable corporate Python runtime baseline and the single, centrally-governed Python stack every app inherits |
+| Application payload + `app_deploy.yml` / `app_release.yml` | Application Development | The app's code, pinned extras, and Alembic migrations; the two app-owned plays (deploy, then release/go-live) |
 
 **Single corporate Python standard (few choice points).** The application runtime image is the
 one place the corporate Python stack is defined: the DB driver set (`python3-PyMySQL` for
@@ -66,13 +66,13 @@ one-shot container tooling.
 
 ## Image layering
 
-Layering **is** the team boundary: the base image is platform/security-team owned; the database and application images are workload-team owned, each derived from the one below. No multi-stage Containerfile build is required — nothing is compiled.
+Layering **is** the team boundary: the base image is Infrastructure / Operations-owned; the database and application images are workload-team owned, each derived from the one below. No multi-stage Containerfile build is required — nothing is compiled.
 
 Each image directory uses a `rootfs/` subtree mirroring the target filesystem layout; the build context is the documentation of what lands where on a deployed system.
 
 **Containerfile build constraint:** the firewalld daemon is not running during an image build. All firewall configuration in Containerfile steps must use the offline mechanism — the standard runtime tool requires a running daemon and will fail at build time. This constraint applies to every image that manages firewall state.
 
-### Base image (platform/security)
+### Base image (Infrastructure / Operations)
 
 Requirements:
 - Base: `quay.io/centos-bootc/centos-bootc:stream10`.
@@ -131,7 +131,7 @@ Requirements:
   path.
 - Passes `bootc container lint`.
 
-### Application payload (app-feature-team owned)
+### Application payload (Application Development-owned)
 
 Requirements:
 - Lives outside `images/` and `ansible/` (e.g., under a top-level `app/corp-app/`): the app source,
@@ -164,12 +164,12 @@ Requirements:
 
 ## Workload automation (requirements)
 
-The automation is a five-phase sequence: `00_bootstrap` (platform onboarding), `01_database` (DBA
-DB foundation), `02_app_deploy` and `03_app_release` (the app team's two plays), and the optional,
-user-run `04_proof_of_life`. Only the first four are deployment; `site.yml` imports exactly those
+The automation is a five-phase sequence: `bootstrap.yml` (platform onboarding), `database.yml` (DBA
+DB foundation), `app_deploy.yml` and `app_release.yml` (the app team's two plays), and the optional,
+user-run `proof_of_life.yml`. Only the first four are deployment; `site.yml` imports exactly those
 four and never proof-of-life.
 
-### Database foundation role (DBA-owned, `01_database`)
+### Database foundation role (DBA-owned, `database.yml`)
 - Must reach a fresh, unconfigured MariaDB as root via the local unix socket with elevation — no pre-set root password required. All DB work on a fresh instance goes through that access path.
 - Waits for the database service to be active before doing DB work.
 - Creates the application database.
@@ -179,19 +179,19 @@ four and never proof-of-life.
 - Does **not** set a database root password; the unix socket remains the maintenance path.
 - A stricter corporate posture (separate DDL "migration" account vs. DML "runtime" account, each with its own secret) is a named production next-step, intentionally out of scope for the reference pattern.
 
-### Application deploy role (app-team play 1, `02_app_deploy`)
+### Application deploy role (app-team play 1, `app_deploy.yml`)
 - Installs the payload to `/opt/corp-app` and creates the venv at `/opt/corp-app/venv` with system site-packages (inherits the baked corporate stack).
 - Installs only the app's pinned extras into the venv; never re-installs or re-pins the corporate stack.
 - Writes the app configuration (database endpoint + credentials) to `/etc/corp-app/config.ini` with restrictive permissions, and renders the instance-owned systemd unit to `/etc/systemd/system/corp-app.service`.
 - Does **not** start the service, run migrations, or open any firewall port.
 
-### Application release role (app-team play 2, `03_app_release`)
+### Application release role (app-team play 2, `app_release.yml`)
 - Runs the app's Alembic migrations from the venv (creating the schema + idempotent seed).
 - Enables and starts the app service.
 - Verifies **only** a single loopback readiness gate — the app's health endpoint on the host's loopback must report the database connection. No functional read/write exercises here.
 - Does **not** open the external firewall port (the deliberate teaching-moment gap).
 
-### Proof-of-life exercise (optional, user-run, `04_proof_of_life`)
+### Proof-of-life exercise (optional, user-run, `proof_of_life.yml`)
 - A clearly-labelled firewall-exposure step opens the app port (the teaching moment: before it, external access fails by default-deny; after it, the service is reachable).
 - Functional verification runs from the control node **over the network**: health is connected, the `ansible-bootstrap` seed is visible via the read endpoint, a write succeeds, and malformed input is rejected. These are the checks removed from deployment.
 
@@ -218,8 +218,8 @@ four and never proof-of-life.
 - The playbooks must run **unchanged** under AAP.
 - **Constraint: an AAP job carries exactly one machine credential.** Therefore:
   - The onboarding (PSK rotation) phase must be runnable as its own job template with the **bootstrap** credential.
-  - The workload phases (`01_database` + `02_app_deploy` + `03_app_release`) must be runnable as a job template with the **live** credential.
-  - The optional `04_proof_of_life` is a separate job (or manual run), never chained into the workload job.
+  - The workload phases (`database.yml` + `app_deploy.yml` + `app_release.yml`) must be runnable as a job template with the **live** credential.
+  - The optional `proof_of_life.yml` is a separate job (or manual run), never chained into the workload job.
 - **Documentation call-out (required in README/artifacts):** when templating this project for AAP, the documentation must explicitly explain the credential/job split above and the vault → credential/survey translation.
 
 ## Repository layout
@@ -273,7 +273,7 @@ ansible-bootc/
 │   │                       └── tuned.conf  # DB workload tuned profile (image-owned)
 │   └── application/                     # Reusable corporate Python RUNTIME baseline
 │       └── Containerfile                # FROM base -> python runtime + corporate stack; NO app code/unit
-├── app/                                 # App-feature-team payload (deployed to /opt/corp-app)
+├── app/                                 # Application Development payload (deployed to /opt/corp-app)
 │   └── corp-app/
 │       ├── requirements.txt             # App-specific pinned EXTRAS only (never the corporate stack)
 │       ├── src/                         # Application package (SQLAlchemy + Pydantic)
@@ -297,18 +297,18 @@ ansible-bootc/
     ├── keys/                            # Generated key material — all gitignored
     │   └── .gitignore                   # Excludes id_* private keys and vault password file
     ├── playbooks/
-    │   ├── 00_bootstrap.yml             # Platform: bootstrap key probe & rotation
-    │   ├── 01_database.yml              # DBA: DB foundation (no schema/seed)
-    │   ├── 02_app_deploy.yml            # App team play 1: deploy payload/venv/config/unit
-    │   ├── 03_app_release.yml           # App team play 2: migrate + start + readiness gate
-    │   └── 04_proof_of_life.yml         # Optional user exercise: firewall-open + functional checks
+    │   ├── bootstrap.yml                # Platform: bootstrap key probe & rotation
+    │   ├── database.yml                 # DBA: DB foundation (no schema/seed)
+    │   ├── app_deploy.yml               # App team play 1: deploy payload/venv/config/unit
+    │   ├── app_release.yml              # App team play 2: migrate + start + readiness gate
+    │   └── proof_of_life.yml            # Optional user exercise: firewall-open + functional checks
     ├── roles/
     │   ├── bootstrap_key_rotation/
     │   ├── mariadb_instance/            # DB foundation (schema-free)
     │   ├── app_deploy/                  # incl. templates/ for config.ini + the systemd unit
     │   ├── app_release/                 # Alembic migrate, enable/start, loopback readiness gate
     │   └── app_proof_of_life/           # Network functional verification (exercise)
-    └── site.yml                         # Deployment entrypoint: 00, 01, 02, 03 (NOT proof-of-life)
+    └── site.yml                         # Deployment entrypoint: bootstrap, database, app_deploy, app_release (NOT proof-of-life)
 ```
 
 ## Acceptance criteria (drive the implementation)
@@ -318,8 +318,8 @@ ansible-bootc/
 3. A freshly installed, never-onboarded system is reachable by Ansible via the PSK; the PSK is present in the standard authorized-keys location with usable ownership and permissions.
 4. Onboarding installs the live key and removes the PSK; re-running onboarding is a no-op.
 5. On a fresh instance, the DB foundation role creates the application database and account (scoped to its own database, including the DDL the app's migrations need) and narrows the database port to the application host; it creates **no** application schema or seed.
-6. `02_app_deploy` installs the payload to `/opt/corp-app` with a venv (system site-packages) and pinned extras, writes the config and the instance-owned unit, and does not start the service. `03_app_release` runs the app's Alembic migration (creating the schema + idempotent `ansible-bootstrap` seed), starts the service, and passes a loopback readiness gate; the application authenticates to the database **over the network**.
-7. Immediately after release, the app is reachable on the host's loopback but **not** from the network (default-deny). The optional `04_proof_of_life` opens the port (the teaching moment) and then verifies — over the network — health, seed visibility, a write, and rejection of malformed input.
+6. `app_deploy.yml` installs the payload to `/opt/corp-app` with a venv (system site-packages) and pinned extras, writes the config and the instance-owned unit, and does not start the service. `app_release.yml` runs the app's Alembic migration (creating the schema + idempotent `ansible-bootstrap` seed), starts the service, and passes a loopback readiness gate; the application authenticates to the database **over the network**.
+7. Immediately after release, the app is reachable on the host's loopback but **not** from the network (default-deny). The optional `proof_of_life.yml` opens the port (the teaching moment) and then verifies — over the network — health, seed visibility, a write, and rejection of malformed input.
 8. The deployment flow runs as a single `ansible-playbook site.yml` standalone (four phases, proof-of-life excluded), and as separable AAP jobs (bootstrap credential, then live credential) with no playbook changes.
 9. A `bootc upgrade` leaves state intact: live key present, PSK absent, DB data preserved, the `/opt/corp-app` payload and `/etc` runtime config preserved, services enabled.
 10. On the database host the active tuned profile is the corporate database profile, and the MariaDB service runs with the corporate unit drop-in limits in effect.
@@ -331,7 +331,7 @@ ansible-bootc/
 - The `rootfs/` mirror-tree convention (build context = documentation of what lands where).
 - **Key generation → image build ordering**: run `scripts/generate-demo-keys.sh` before any image build; the script writes the bootstrap pubkey into the base image build context, and running it after the build produces a key mismatch.
 - Collection installation, vault setup, and end-to-end execution (run from the `ansible/` directory).
-- Team ownership model: the layered `FROM base` structure and the Ansible phase split *are* the team boundaries (platform → base; DBA → DB image + foundation; app-platform → runtime image + corporate Python standard; app-feature → payload + two plays); multi-stage build stages are not needed.
+- Team ownership model: the layered `FROM base` structure and the Ansible phase split *are* the team boundaries (Infrastructure / Operations → base; DBA → DB image + foundation; Middleware → runtime image + corporate Python standard; Application Development → payload + two plays); multi-stage build stages are not needed.
 - Corporate Python standard: the single baked stack (two DB drivers + SQLAlchemy/Alembic/Pydantic) as one source of truth; the `/opt/corp-app` + venv (`--system-site-packages`) deployment standard; the runtime package policy (OS packages bake-time only; app Python deps via pip into the venv, pinned); why centralizing minimizes per-app choices.
 - Deploy vs. release vs. proof-of-life: the five-phase sequence; schema/seed as app-owned Alembic (not DBA); proof-of-life as an optional, user-run network exercise separate from deployment.
 - Firewall exposure as a teaching moment: the service works on loopback immediately after release yet is unreachable from the network until a deliberate, user-run firewall-open step — default-deny posture, loopback ≠ network, runtime firewall ownership.
@@ -353,12 +353,12 @@ ansible-bootc/
   - SSH management surface: key-only, restricted to the Ansible account, restrictive options on the PSK line, and the image explicitly opens its own ssh service (the default zone drops it).
   - Service tuning: the tuned profile and the `mariadb.service` drop-in are image content that follows updates; why `limits.d` would not work for a systemd service; the app unit's small hardening directive set is overridable via drop-in.
   - Security non-additions as decisions: no runtime update daemon (the patching unit is image rebuild + `bootc upgrade`), no custom SELinux policy, no sysctl pile-up; image signing and DB TLS are named as next steps, out of scope.
-- **AAP templating call-out** (required): the one-credential-per-job constraint, the bootstrap-job vs workload-job split (workload = `01`+`02`+`03`), proof-of-life as a separate optional job, and the vault → credential/survey translation (see AAP compatibility).
+- **AAP templating call-out** (required): the one-credential-per-job constraint, the bootstrap-job vs workload-job split (workload = `database.yml`+`app_deploy.yml`+`app_release.yml`), proof-of-life as a separate optional job, and the vault → credential/survey translation (see AAP compatibility).
 
 ## Build & execution ordering
 
 1. Run `scripts/generate-demo-keys.sh` to generate the demo keys (bootstrap + live) — must precede any image build, since the PSK must be in the image build context. The script crosses the images/ansible boundary and lives at the repo root for that reason.
 2. Build the base image, then the database and application (runtime baseline) images.
 3. Provision the VMs from the images (out of scope).
-4. Install collections; run onboarding (PSK → live key); then the deployment phases: DB foundation (`01`), app deploy (`02`), app release (`03`). Standalone, this is one `ansible-playbook site.yml` run; under AAP, two jobs (bootstrap credential, then live credential).
-5. Optionally run `04_proof_of_life.yml` by hand: it performs the deliberate firewall-exposure step and then verifies the system over the network.
+4. Install collections; run onboarding (PSK → live key); then the deployment phases: DB foundation (`database.yml`), app deploy (`app_deploy.yml`), app release (`app_release.yml`). Standalone, this is one `ansible-playbook site.yml` run; under AAP, two jobs (bootstrap credential, then live credential).
+5. Optionally run `proof_of_life.yml` by hand: it performs the deliberate firewall-exposure step and then verifies the system over the network.
