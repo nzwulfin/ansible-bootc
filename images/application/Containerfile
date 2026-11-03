@@ -19,7 +19,7 @@
 # BUILD ORDER:
 #   scripts/generate-demo-keys.sh          # generate PSK and live keys
 #   podman build -t corp-base:latest images/base/
-#   podman build -t corp-app-img:latest images/application/
+#   podman build -t corp-app:latest images/application/
 #
 # Corporate Python standard baked here (G15 — single source of truth):
 #   Tier 1  Core runtime:          python3, python3-pip, python3-virtualenv,

@@ -120,7 +120,7 @@ podman build -t corp-base:latest images/base/
     ↓
 podman build -t corp-db:latest images/database/
     ↓
-podman build -t corp-app-img:latest images/application/
+podman build -t corp-app:latest images/application/
 ```
 
 **Why the order matters:** `scripts/generate-demo-keys.sh` writes the bootstrap public
