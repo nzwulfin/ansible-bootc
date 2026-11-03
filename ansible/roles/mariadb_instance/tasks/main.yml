@@ -1,5 +1,5 @@
 ---
-# mysql_instance — tasks/main.yml
+# mariadb_instance — tasks/main.yml
 #
 # Provisions the MariaDB *foundation* for runtime use:
 #   1. Wait for the unix socket (proves service is up and self-initialized).

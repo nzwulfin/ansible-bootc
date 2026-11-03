@@ -84,7 +84,7 @@ FROM corp-base:latest
 #
 #   python3-PyMySQL    Pure-Python MariaDB/MySQL driver. Required by:
 #                        - the ansible.mariadb collection modules (used at
-#                          runtime by the mysql_instance role on the DB host),
+#                          runtime by the mariadb_instance role on the DB host),
 #                        - the application's SQLAlchemy pymysql:// dialect.
 #   python3-psycopg2   PostgreSQL driver (C extension). Baked alongside
 #                      PyMySQL to signal a SINGLE corporate runtime that

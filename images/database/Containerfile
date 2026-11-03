@@ -65,7 +65,7 @@ RUN systemctl enable mariadb
 
 # ── Firewall: open MySQL service at bake time (G1) ────────────────────────────
 # Broad open is the bake-time posture — any test environment can reach the DB.
-# The mysql_instance Ansible role narrows this to the application host IP at
+# The mariadb_instance Ansible role narrows this to the application host IP at
 # runtime (replaces this service rule with a source-restricted rich rule).
 RUN firewall-offline-cmd --add-service=mysql
 

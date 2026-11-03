@@ -7,7 +7,7 @@
 
 collections:
   # ansible.mariadb: provides mariadb_db (database creation) and mariadb_user (account management
-  # and privilege grants), used by the mysql_instance role for the DB foundation (database +
+  # and privilege grants), used by the mariadb_instance role for the DB foundation (database +
   # account + privileges). Schema is owned by the app's Alembic migrations, so mariadb_query is
   # no longer required by the DB role. Replaces community.mysql, which drops MariaDB support in
   # 6.0.0.
@@ -15,6 +15,6 @@ collections:
     version: ">=6.0.0"
 
   # ansible.posix: provides authorized_key (SSH key management) and firewalld (firewall management)
-  # used by the bootstrap_key_rotation role (authorized_key) and the mysql_instance role (firewalld).
+  # used by the bootstrap_key_rotation role (authorized_key) and the mariadb_instance role (firewalld).
   - name: ansible.posix
     version: ">=1.5.0"

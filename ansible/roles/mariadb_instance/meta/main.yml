@@ -1,10 +1,10 @@
 ---
-# mysql_instance — meta/main.yml
+# mariadb_instance — meta/main.yml
 #
 # Role metadata for dependency declaration and Galaxy publication details.
 
 galaxy_info:
-  role_name: mysql_instance
+  role_name: mariadb_instance
   author: ansible-bootc
   description: >
     DB foundation (DBA-owned): creates the application database, the application

@@ -36,4 +36,4 @@
   become: true
 
   roles:
-    - role: mysql_instance
+    - role: mariadb_instance

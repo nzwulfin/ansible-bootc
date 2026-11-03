@@ -6,8 +6,8 @@ Create Date: 2026-01-01 00:00:00.000000
 
 OWNERSHIP
 ---------
-Schema is app-team territory. This migration — not the mysql_instance DBA role
-(ansible/roles/mysql_instance) — creates the table and seeds the initial row.
+Schema is app-team territory. This migration — not the mariadb_instance DBA role
+(ansible/roles/mariadb_instance) — creates the table and seeds the initial row.
 The DBA role provisions the database container (database + account + access);
 the app team fills it (schema + data). See design spec §8.2 and §8.4.
 
