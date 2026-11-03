@@ -8,7 +8,7 @@
 #
 # Paths and the account name only — never credentials: no private key
 # material and no secrets appear in this file. The psk_reachable probe
-# fact is set at play scope by playbooks/00_bootstrap.yml and is
+# fact is set at play scope by playbooks/bootstrap.yml and is
 # intentionally not declared here.
 #
 # Constraints honoured:
@@ -23,7 +23,7 @@ authorized_key_user: ansible
 
 # Path to the bootstrap (PSK) private key, relative to the ansible/ run
 # directory (G11). This is the value the play-level
-# ansible_ssh_private_key_file override in playbooks/00_bootstrap.yml
+# ansible_ssh_private_key_file override in playbooks/bootstrap.yml
 # falls back to; the key file itself is generated, gitignored material.
 bootstrap_key_path: keys/id_bootstrap
 

@@ -30,5 +30,5 @@ dependencies:
   # (ansible.builtin.uri, ansible.builtin.assert) are in ansible.builtin and
   # require no additional collection installation beyond what the project
   # requirements.yml already declares (ansible.posix, used by the firewall-exposure
-  # play in 04_proof_of_life.yml).
+  # play in proof_of_life.yml).
   []

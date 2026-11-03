@@ -30,7 +30,7 @@ app_venv: "{{ app_root }}/venv"
 # Path to the application payload source tree (app/corp-app/ or a built artifact).
 # Uses inventory_dir (always ansible/inventory/ per ansible.cfg, G11) to navigate
 # to the repo root — resolves correctly whether the role is invoked via site.yml
-# (playbook_dir = ansible/) or directly via playbooks/02_app_deploy.yml
+# (playbook_dir = ansible/) or directly via playbooks/app_deploy.yml
 # (playbook_dir = ansible/playbooks/). inventory_dir is stable in both cases.
 # Note: group_vars/application/vars.yml overrides this for the 'application' group.
 app_src: "{{ inventory_dir ~ '/../../app/corp-app' }}"

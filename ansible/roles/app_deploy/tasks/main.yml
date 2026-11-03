@@ -128,7 +128,7 @@
   # enabling, starting, and confirming the service (design-spec.md §8.4, G17).
   #
   # No firewall port is opened (G19); external reachability is a deliberate,
-  # separately-labelled step in 04_proof_of_life.yml.
+  # separately-labelled step in proof_of_life.yml.
 
 - name: Reload systemd daemon after unit file created or changed
   ansible.builtin.systemd:

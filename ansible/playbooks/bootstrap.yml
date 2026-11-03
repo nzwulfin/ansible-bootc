@@ -1,5 +1,5 @@
 ---
-# ansible/playbooks/00_bootstrap.yml
+# ansible/playbooks/bootstrap.yml
 #
 # PSK probe -> key rotation -> live key verification: the single discrete
 # onboarding unit (design-spec.md Section 7.7).
@@ -15,7 +15,7 @@
 # bootstrap key; Play 3 falls back to the ansible.cfg default (live key).
 #
 # Standalone usage (run from the ansible/ directory — G11):
-#   ansible-playbook playbooks/00_bootstrap.yml
+#   ansible-playbook playbooks/bootstrap.yml
 #
 # AAP usage:
 #   Run as its own job template with the bootstrap machine credential.
@@ -84,7 +84,7 @@
   # AAP tag: under AAP's one-credential-per-job rule, the bootstrap job template
   # runs with the bootstrap credential and skips this play via `--skip-tags live_key_verify`.
   # Live-key verification is then performed by the workload job's first connection.
-  # Standalone runs (ansible-playbook 00_bootstrap.yml) run all plays unconditionally.
+  # Standalone runs (ansible-playbook bootstrap.yml) run all plays unconditionally.
   tags:
     - live_key_verify
   # No ansible_ssh_private_key_file override: the ansible.cfg default
