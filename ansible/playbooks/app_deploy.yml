@@ -29,7 +29,7 @@
 # inactive and the external port is closed. The service becomes reachable on
 # loopback only after app_release.yml enables and starts it, and reachable
 # from the network only after the explicit firewall-exposure step in
-# proof_of_life.yml (default-deny posture: loopback reachability ≠ network
+# expose_app.yml (default-deny posture: loopback reachability ≠ network
 # reachability until a human deliberately exposes the port).
 
 - name: Deploy application payload and configuration
