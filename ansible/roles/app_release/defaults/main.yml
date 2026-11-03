@@ -5,8 +5,8 @@
 # deployment (design-spec.md §8.4).
 #
 # This role is the second app-team play:
-#   app_deploy (02) — deploys payload, venv, config, unit; does NOT start
-#   app_release (03) — migrates schema, enables/starts service, readiness gate
+#   app_deploy — deploys payload, venv, config, unit; does NOT start
+#   app_release — migrates schema, enables/starts service, readiness gate
 #
 # Variable precedence reminder:
 #   group_vars > role defaults. For hosts in the 'application' group,

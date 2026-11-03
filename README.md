@@ -250,7 +250,7 @@ ansible-bootc/
 └── ansible/
     ├── ansible.cfg                           Run from ansible/ directory
     ├── requirements.yml                      ansible.mariadb, ansible.posix
-    ├── site.yml                              Deployment entrypoint (00–03; NOT proof-of-life)
+    ├── site.yml                              Deployment entrypoint (bootstrap → database → app_deploy → app_release; NOT proof-of-life)
     ├── inventory/
     │   ├── hosts.yml                         db01, app01 — update IPs here
     │   └── group_vars/
