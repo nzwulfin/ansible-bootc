@@ -7,11 +7,11 @@
 #
 # Interface agreement (design-spec.md §7.5, §9): this value MUST be identical to
 # app01's ansible_host in inventory/hosts.yml. If they diverge:
-#   - The MariaDB account created by mysql_instance will have a host restriction
+#   - The MariaDB account created by mariadb_instance will have a host restriction
 #     that does not match the actual application host IP, silently blocking connections.
 #   - The firewall rich rule will allow the wrong source address.
 #
-# Used by the mysql_instance role for:
+# Used by the mariadb_instance role for:
 #   - ansible.mariadb.mariadb_user host: parameter (account host restriction)
 #   - ansible.posix.firewalld rich rule source address (runtime firewall narrowing)
 app_host_address: 192.168.122.20   # Must match app01.ansible_host in hosts.yml

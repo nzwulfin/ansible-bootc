@@ -118,7 +118,7 @@ ansible-bootc/
     │   └── expose_app.yml            ← optional user action: open firewall port
     └── roles/
         ├── bootstrap_key_rotation/
-        ├── mysql_instance/           ← DB foundation (infra), schema-free
+        ├── mariadb_instance/           ← DB foundation (infra), schema-free
         ├── app_deploy/               ← payload, venv, pinned deps, config, unit
         ├── app_release/              ← Alembic migrate, enable/start, readiness gate
         └── app_proof_of_life/        ← functional GET/POST + DB cross-checks (exercise)
@@ -309,7 +309,7 @@ no-pty,no-X11-forwarding,no-agent-forwarding,no-user-rc ssh-ed25519 AAAA... comm
 1. Install packages and clean cache.
 2. Copy `rootfs/` with `COPY rootfs/ /`. This installs the MariaDB config, the unit drop-in, and the tuned profile in one step.
 3. Enable `mariadb` so the service starts on first boot and self-initializes with the corporate config already in place.
-4. Open the MySQL/MariaDB service in the firewall using `firewall-offline-cmd --add-service=mysql` (G1). This broad open is the bake-time posture; the `mysql_instance` Ansible role narrows it at runtime.
+4. Open the MySQL/MariaDB service in the firewall using `firewall-offline-cmd --add-service=mysql` (G1). This broad open is the bake-time posture; the `mariadb_instance` Ansible role narrows it at runtime.
 5. Write `corp-database` to `/etc/tuned/active_profile` and `manual` to `/etc/tuned/profile_mode`. The profile name must match the directory name under `/usr/lib/tuned/` exactly (G6).
 
 **Must not do:**
@@ -627,7 +627,7 @@ service_records(id INT AUTO_INCREMENT PRIMARY KEY,
 ### 7.3 `ansible/requirements.yml`
 
 **Must declare:** Two collection dependencies:
-- `ansible.mariadb` (version constraint ≥ 6.0.0) — provides `mariadb_db` and `mariadb_user`, used by the `mysql_instance` role for the DB foundation (database + account + privileges). Schema is owned by the app's Alembic migrations, so `mariadb_query` is no longer required by the DB role. (Replaces `community.mysql`, which drops MariaDB support in 6.0.0.)
+- `ansible.mariadb` (version constraint ≥ 6.0.0) — provides `mariadb_db` and `mariadb_user`, used by the `mariadb_instance` role for the DB foundation (database + account + privileges). Schema is owned by the app's Alembic migrations, so `mariadb_query` is no longer required by the DB role. (Replaces `community.mysql`, which drops MariaDB support in 6.0.0.)
 - `ansible.posix` (version constraint ≥ 1.5.0) — provides `authorized_key` and `firewalld`, used by `bootstrap_key_rotation` and the firewall tasks.
 
 Include a comment on each entry describing which modules it provides. The app deployment
@@ -662,7 +662,7 @@ and that `proof_of_life.yml` and `expose_app.yml` are run by hand after deployme
 - An `ansible_host` IP address for each host (lab-specific placeholders that implementors replace).
 
 **Interface agreements:**
-- The IP of `app01` (`ansible_host`) must equal the value of `app_host_address` in `group_vars/database/vars.yml` (used by the `mysql_instance` role for both account host restriction and firewall rule).
+- The IP of `app01` (`ansible_host`) must equal the value of `app_host_address` in `group_vars/database/vars.yml` (used by the `mariadb_instance` role for both account host restriction and firewall rule).
 - The IP of `db01` (`ansible_host`) must equal the value of `db_host` in `group_vars/application/vars.yml` (used by the `app_deploy` role in the config template).
 - The IP of `app01` (`ansible_host`) is also the target the `04_proof_of_life` exercise connects to over the network (from the control node) when demonstrating external reachability after the firewall-exposure step (G19).
 
@@ -677,14 +677,14 @@ The following table is the normative variable schema. Every variable must appear
 | `ansible_user` | `all/vars.yml` | No | all connection setup | Must match the baked account name (`ansible`) |
 | `bootstrap_pubkey_path` | `all/vars.yml` | No | `bootstrap_key_rotation` | Relative to `ansible/` run directory |
 | `live_pubkey_path` | `all/vars.yml` | No | `bootstrap_key_rotation` | Relative to `ansible/` run directory |
-| `app_db_name` | `all/vars.yml` | No | `mysql_instance`, `app_deploy`, `app_release` | Shared; must be visible to both groups |
-| `app_db_user` | `all/vars.yml` | No | `mysql_instance`, `app_deploy`, `app_release` | Shared; must be visible to both groups |
-| `app_db_password` | `all/vault.yml` | **Yes** | `mysql_instance`, `app_deploy`, `app_release` | G4: this file only |
-| `app_host_address` | `database/vars.yml` | No | `mysql_instance` | IP of app01; must match `hosts.yml` `ansible_host` |
+| `app_db_name` | `all/vars.yml` | No | `mariadb_instance`, `app_deploy`, `app_release` | Shared; must be visible to both groups |
+| `app_db_user` | `all/vars.yml` | No | `mariadb_instance`, `app_deploy`, `app_release` | Shared; must be visible to both groups |
+| `app_db_password` | `all/vault.yml` | **Yes** | `mariadb_instance`, `app_deploy`, `app_release` | G4: this file only |
+| `app_host_address` | `database/vars.yml` | No | `mariadb_instance` | IP of app01; must match `hosts.yml` `ansible_host` |
 | `db_host` | `application/vars.yml` | No | `app_deploy` | IP of db01; must match `hosts.yml` `ansible_host` |
 | `app_port` | `application/vars.yml` | No | `app_deploy`, `app_release`, `app_proof_of_life` (firewall-exposure step + external check) | Application listen port; must match `[server] port` in config.ini, the firewall rule, the readiness gate, and the proof-of-life check |
 
-**Why `app_db_name` and `app_db_user` are in `all/vars.yml`:** The `mysql_instance` role (running against the `database` group) creates the account; the `app_deploy` role (running against the `application` group) writes the account name to the config template, and `app_release` uses it when running migrations. A group-specific variable is not visible cross-group. These non-sensitive shared values belong in `all/vars.yml`.
+**Why `app_db_name` and `app_db_user` are in `all/vars.yml`:** The `mariadb_instance` role (running against the `database` group) creates the account; the `app_deploy` role (running against the `application` group) writes the account name to the config template, and `app_release` uses it when running migrations. A group-specific variable is not visible cross-group. These non-sensitive shared values belong in `all/vars.yml`.
 
 **Application deployment variables (`application/vars.yml`, non-sensitive):** The deployment
 standard (G14) is expressed as overridable variables so the pattern is reusable, with
@@ -735,7 +735,7 @@ The config path `/etc/corp-app/config.ini` is **not** a variable (fixed by G12).
 
 ### 7.8 `ansible/playbooks/database.yml` — DB foundation (DBA-owned)
 
-**Must declare:** `hosts: database`, `gather_facts: true`, `become: true`, apply role `mysql_instance`.
+**Must declare:** `hosts: database`, `gather_facts: true`, `become: true`, apply role `mariadb_instance`.
 
 **Scope:** Database *foundation* only — DB, accounts, privileges, firewall narrowing. It
 creates **no** application schema and **no** seed data; those are app-team territory, applied
@@ -843,7 +843,7 @@ non-idempotent probe).
 
 ---
 
-### 8.2 Role: `mysql_instance` (DB foundation — DBA-owned)
+### 8.2 Role: `mariadb_instance` (DB foundation — DBA-owned)
 
 **Purpose:** Provisions the MariaDB *foundation* for runtime use: the application database, the
 application account with privileges on its own database, and the runtime firewall narrowing. It
@@ -877,7 +877,7 @@ rather than on DB credential plumbing. But a single account means the long-runni
 network-exposed service process holds schema-destroying privileges it never uses, which is a real
 anti-pattern. An example that modelled that **silently** would normalise it. Therefore:
 
-- The `mysql_instance` task **comment itself** (not only distant docs) must state that the DDL grant
+- The `mariadb_instance` task **comment itself** (not only distant docs) must state that the DDL grant
   exists purely so the app team can own its schema in this simplified example, and that a real
   deployment separates a release-time DDL/"migration" credential from a least-privilege runtime
   credential.
@@ -1037,7 +1037,7 @@ The following cross-component agreements must hold. A violation in any one file 
 | Corporate Python stack | baked in `images/application` (Section 6.2), inherited by `app_venv` (`--system-site-packages`), imported by app payload | single source of truth; never re-pinned downstream (G15) |
 | App host IP | `hosts.yml` `app01.ansible_host`, `group_vars/database/vars.yml` `app_host_address`, `app_proof_of_life` network target | Must be identical |
 | DB host IP | `hosts.yml` `db01.ansible_host`, `group_vars/application/vars.yml` `db_host` | Must be identical |
-| App DB password variable name | `all/vault.yml`, `mysql_instance` role `password:`, `config.ini.j2` template, Alembic migration credential | `app_db_password` |
+| App DB password variable name | `all/vault.yml`, `mariadb_instance` role `password:`, `config.ini.j2` template, Alembic migration credential | `app_db_password` |
 | Bootstrap key path (Ansible) | `group_vars/all/vars.yml` `bootstrap_pubkey_path`, `00_bootstrap.yml` play vars `ansible_ssh_private_key_file`, `bootstrap_key_rotation` role defaults | `keys/id_bootstrap` / `keys/id_bootstrap.pub` (relative to `ansible/`) |
 
 ---
@@ -1300,9 +1300,9 @@ Each task is a discrete, independently reviewable unit. Dependencies are listed;
 **Branch slug:** `task/db-role`
 
 **Files created or modified:**
-- `ansible/roles/mysql_instance/defaults/main.yml` (create)
-- `ansible/roles/mysql_instance/tasks/main.yml` (create)
-- `ansible/roles/mysql_instance/meta/main.yml` (create)
+- `ansible/roles/mariadb_instance/defaults/main.yml` (create)
+- `ansible/roles/mariadb_instance/tasks/main.yml` (create)
+- `ansible/roles/mariadb_instance/meta/main.yml` (create)
 - `ansible/playbooks/01_database.yml` (create)
 
 **Inputs required:**

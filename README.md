@@ -67,7 +67,7 @@ This project answers with a single rule:
 | Platform standard (SSH policy, management account, firewall baseline) | Base bootc image | `COPY rootfs/ /` in the Containerfile |
 | Workload standard (MariaDB resource limits, tuned profile, corporate DB config; corporate Python runtime stack) | Workload bootc image | `COPY rootfs/ /` and baked packages in the workload Containerfile |
 | Application payload (code, pinned extras, Alembic migrations) | App-feature team | Deployed by Ansible to `/opt/corp-app` (`app_deploy`) — never baked |
-| Instance-specific runtime state (database credentials, app config, live SSH key, app schema) | Ansible | Roles: `mysql_instance`, `app_deploy`, `app_release`, `bootstrap_key_rotation` |
+| Instance-specific runtime state (database credentials, app config, live SSH key, app schema) | Ansible | Roles: `mariadb_instance`, `app_deploy`, `app_release`, `bootstrap_key_rotation` |
 
 Anything that is **the same on every host running this image** lives in the image.
 Anything that **differs between hosts** or **must not exist until after first contact**
@@ -268,7 +268,7 @@ ansible-bootc/
     │   └── expose_app.yml                    Operator action: open external firewall port
     └── roles/
         ├── bootstrap_key_rotation/           PSK → live key rotation
-        ├── mysql_instance/                   DB + account + firewall narrowing (schema-free)
+        ├── mariadb_instance/                   DB + account + firewall narrowing (schema-free)
         ├── app_deploy/                       Payload, venv, pinned extras, config, unit
         ├── app_release/                      Alembic migrate, enable/start, readiness gate
         └── app_proof_of_life/                Network functional verification (exercise)
@@ -529,7 +529,7 @@ ansible-vault encrypt inventory/group_vars/application/vault.yml
 ```
 
 The `all/vault.yml` file contains `app_db_password`. This is the only place this
-variable may appear (the shared secret rule): it must be visible to the `mysql_instance` role
+variable may appear (the shared secret rule): it must be visible to the `mariadb_instance` role
 (database group, which creates the account) and to the `app_deploy`/`app_release` roles
 (application group, which render it into the config and use it as the Alembic migration
 credential), which requires placement in `all/` rather than any group-specific vault.
@@ -791,7 +791,7 @@ RUN firewall-offline-cmd --add-service=mysql
 ```
 
 This broad open is intentional for test environments: any host can reach the database
-port without any runtime configuration. The `mysql_instance` Ansible role narrows it at
+port without any runtime configuration. The `mariadb_instance` Ansible role narrows it at
 runtime to the application host's IP address only:
 
 ```yaml
@@ -1152,7 +1152,7 @@ variables. **Variable names remain identical**; roles are unchanged.
 |------------|----------|----------------|
 | `ansible/inventory/group_vars/all/vault.yml` | `app_db_password` | AAP Custom Credential (type: Secret Text) injected as an extra var, or a Survey variable — named `app_db_password` |
 
-Because the variable names are unchanged, the `mysql_instance` role (which references
+Because the variable names are unchanged, the `mariadb_instance` role (which references
 `app_db_password` in its `mariadb_user` task) and the `app_deploy` role (which renders
 it into `config.ini.j2`, and which `app_release` uses as the Alembic migration credential) work
 without modification.

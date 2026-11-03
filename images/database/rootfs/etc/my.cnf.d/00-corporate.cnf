@@ -19,7 +19,7 @@ collation-server        = utf8mb4_unicode_ci
 # Bind to all interfaces so the application host can connect over the network.
 # A localhost-only binding would silently break cross-host connectivity.
 # Actual access is controlled by the firewall (bake-time broad open, narrowed
-# at runtime by the mysql_instance Ansible role — G1).
+# at runtime by the mariadb_instance Ansible role — G1).
 bind-address            = 0.0.0.0
 
 # ── InnoDB sizing ─────────────────────────────────────────────────────────────
