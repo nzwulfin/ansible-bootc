@@ -1,5 +1,5 @@
 ---
-# mysql_instance role defaults
+# mariadb_instance role defaults
 #
 # These are overridable operational knobs. Credentials and instance-specific
 # values (app_db_name, app_db_user, app_host_address, app_db_password) are
