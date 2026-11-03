@@ -2,7 +2,7 @@
 # ansible/playbooks/app_release.yml
 #
 # Releases the application to a live, running state.
-# App-feature team ownership — play 2 of 2 (go-live, after app_deploy.yml).
+# Application Development ownership — play 2 of 2 (go-live, after app_deploy.yml).
 #
 # Standalone usage (run from the ansible/ directory — G11):
 #   ansible-playbook playbooks/app_release.yml
@@ -42,8 +42,8 @@
 #       as a side-effect of deployment.
 #
 # Opening the external port is its own clearly-labelled, user-invoked step:
-# the first task in proof_of_life.yml. See the README for the full teaching
-# arc and the post-release verification workflow.
+# expose_app.yml. See the docs for the full teaching arc and the post-release
+# verification workflow.
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # Proof-of-life is a separate, user-invoked exercise (G17)
@@ -54,7 +54,7 @@
 #   - No negative-input (400) tests
 #
 # Those exercises live exclusively in proof_of_life.yml, which a user runs
-# by hand to demonstrate the system after deliberately exposing the port.
+# by hand to demonstrate the system over loopback.
 # Proof-of-life is NOT imported by site.yml and is NOT a deployment prerequisite
 # (design-spec.md G17). Mixing functional tests into a deployment play would
 # make deployment non-idempotent and obscure the deploy/test boundary.

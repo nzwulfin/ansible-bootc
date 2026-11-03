@@ -4,7 +4,7 @@
 # This file runs the four deployment phases in sequence. Each phase maps to a
 # distinct team ownership boundary:
 #
-#   bootstrap.yml   — Platform / security team
+#   bootstrap.yml   — Infrastructure / Operations
 #                     PSK probe → key rotation → live-key verification.
 #                     Onboards a freshly provisioned host from the bootstrap
 #                     (PSK) credential to the live management credential.
@@ -16,14 +16,14 @@
 #                     Schema and seed data are NOT created here — those are
 #                     app-team territory, applied via Alembic in app_release.
 #
-#   app_deploy.yml  — App-feature team (play 1 of 2)
+#   app_deploy.yml  — Application Development (play 1 of 2)
 #                     Installs the application payload to /opt/corp-app, creates
 #                     the virtualenv with system site-packages, installs pinned
 #                     extras, renders /etc/corp-app/config.ini and the
 #                     /etc/systemd/system/corp-app.service unit.
 #                     The service is NOT enabled or started here.
 #
-#   app_release.yml — App-feature team (play 2 of 2)
+#   app_release.yml — Application Development (play 2 of 2)
 #                     Runs the app's Alembic migrations (schema + seed row),
 #                     enables and starts corp-app, then confirms the service
 #                     came up via a single loopback readiness gate on /health.

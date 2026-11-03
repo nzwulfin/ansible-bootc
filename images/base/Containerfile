@@ -1,4 +1,4 @@
-# Base bootc image — platform/security layer.
+# Base bootc image — Infrastructure / Operations layer.
 #
 # Provides the management account (ansible, UID/GID 5000 pinned per G2),
 # the first-contact provisioning key (PSK) under /var, the key-only SSH
