@@ -12,7 +12,7 @@ galaxy_info:
     migrations), and narrows the firewall from the image-baked broad mysql
     service to a source-restricted rich rule allowing only the application host.
     No schema creation and no seed data — those are app-team territory, applied
-    by the app's Alembic migrations during app_release (03_app_release.yml).
+    by the app's Alembic migrations during app_release (app_release.yml).
     Assumes MariaDB is already installed and enabled via the database bootc image;
     root access is via the local unix socket (no root password set).
   license: Apache-2.0

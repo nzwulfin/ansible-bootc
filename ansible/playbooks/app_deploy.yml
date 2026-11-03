@@ -1,15 +1,15 @@
 ---
-# ansible/playbooks/02_app_deploy.yml
+# ansible/playbooks/app_deploy.yml
 #
 # Deploys the application payload onto the corporate Python runtime baseline.
 # App-feature team ownership — play 1 of 2 (deploy, not go-live).
 #
 # Standalone usage (run from the ansible/ directory — G11):
-#   ansible-playbook playbooks/02_app_deploy.yml
+#   ansible-playbook playbooks/app_deploy.yml
 #
 # AAP usage:
 #   Part of the workload job template (live machine credential), run after
-#   01_database.yml has completed. Under AAP, vault variables (app_db_password)
+#   database.yml has completed. Under AAP, vault variables (app_db_password)
 #   are supplied via a custom credential or survey variable; variable names
 #   are identical to what the role references, so no playbook changes are needed.
 #
@@ -21,15 +21,15 @@
 #   - /etc/systemd/system/corp-app.service  (instance-owned, not baked — G7)
 #
 # This playbook does NOT:
-#   - Enable or start corp-app.service (that is 03_app_release.yml, G17)
-#   - Run Alembic migrations (that is 03_app_release.yml, G17)
+#   - Enable or start corp-app.service (that is app_release.yml, G17)
+#   - Run Alembic migrations (that is app_release.yml, G17)
 #   - Open any firewall port (G19)
 #
 # Teaching moment (G19): after this playbook the service unit exists but is
 # inactive and the external port is closed. The service becomes reachable on
-# loopback only after 03_app_release.yml enables and starts it, and reachable
+# loopback only after app_release.yml enables and starts it, and reachable
 # from the network only after the explicit firewall-exposure step in
-# 04_proof_of_life.yml (default-deny posture: loopback reachability ≠ network
+# proof_of_life.yml (default-deny posture: loopback reachability ≠ network
 # reachability until a human deliberately exposes the port).
 
 - name: Deploy application payload and configuration

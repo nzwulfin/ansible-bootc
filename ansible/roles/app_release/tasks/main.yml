@@ -84,7 +84,7 @@
   # by this role — the check succeeds while the service remains externally
   # unreachable. This is the expected, documented post-release state (default-deny
   # posture); external exposure is a deliberate, separately-labelled step in
-  # 04_proof_of_life.yml.
+  # proof_of_life.yml.
   #
   # app_port is declared in group_vars/application/vars.yml (not a role default,
   # per the §8.4 defaults contract).

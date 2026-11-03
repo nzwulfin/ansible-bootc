@@ -9,7 +9,7 @@
 #
 # SCOPE: DB foundation only — database, account, privileges, firewall narrowing.
 # This role does NOT create schema or seed data. Schema and seed are app-team
-# territory, applied by the app's Alembic migrations in 03_app_release (G17).
+# territory, applied by the app's Alembic migrations in app_release (G17).
 # The former service_records creation and ansible-bootstrap seed tasks have been
 # intentionally removed from this role. See app/corp-app/migrations/.
 #

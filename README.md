@@ -131,7 +131,7 @@ across the new boundary as follows:
 | Application config & credentials | Ansible (templates & vault in `/etc`) | Instance-specific state that differs across environments |
 | Service unit file | Ansible (`app_deploy`: template to `/etc/systemd/system`) | Instance-owned unit; not baked into the image |
 | Service start and enablement | Ansible (`app_release`: `ansible.builtin.systemd`) | Deferred until payload, config, and schema are in place |
-| External firewall exposure | Ansible, deliberate separate step (`04_proof_of_life`) | Default-deny until a human explicitly exposes the service |
+| External firewall exposure | Ansible, deliberate separate step (`proof_of_life`) | Default-deny until a human explicitly exposes the service |
 
 ### Visualizing the architecture
 
@@ -151,11 +151,11 @@ graph TD
     end
 
     subgraph Runtime ["Runtime: Ansible Automation (Instance-Specific Configuration)"]
-        P0["00_bootstrap.yml (PSK Credential)<br/>• Probe with bootstrap PSK<br/>• Install live key, remove PSK<br/>• Verify live key connectivity"]
-        P1["01_database.yml — DBA (Live Credential)<br/>• Wait for MariaDB socket<br/>• Create app database & account (scoped to app IP, DDL on own DB)<br/>• Narrow firewall port to app IP<br/>• NO schema, NO seed"]
-        P2["02_app_deploy.yml — app play 1 (Live Credential)<br/>• Payload to /opt/corp-app + venv (system site-packages)<br/>• pip install pinned extras<br/>• Template /etc/corp-app/config.ini (0640)<br/>• Template /etc/systemd/system/corp-app.service<br/>• (NOT started)"]
-        P3["03_app_release.yml — app play 2 (Live Credential)<br/>• alembic upgrade head (schema + ansible-bootstrap seed)<br/>• Enable & start corp-app<br/>• Loopback readiness gate (/health) ONLY"]
-        P4["04_proof_of_life.yml — OPTIONAL, user-run<br/>• Deliberately open app firewall port (teaching moment)<br/>• Over the network: /health, seed in GET /, POST /record, 400 check"]
+        P0["bootstrap.yml (PSK Credential)<br/>• Probe with bootstrap PSK<br/>• Install live key, remove PSK<br/>• Verify live key connectivity"]
+        P1["database.yml — DBA (Live Credential)<br/>• Wait for MariaDB socket<br/>• Create app database & account (scoped to app IP, DDL on own DB)<br/>• Narrow firewall port to app IP<br/>• NO schema, NO seed"]
+        P2["app_deploy.yml — app play 1 (Live Credential)<br/>• Payload to /opt/corp-app + venv (system site-packages)<br/>• pip install pinned extras<br/>• Template /etc/corp-app/config.ini (0640)<br/>• Template /etc/systemd/system/corp-app.service<br/>• (NOT started)"]
+        P3["app_release.yml — app play 2 (Live Credential)<br/>• alembic upgrade head (schema + ansible-bootstrap seed)<br/>• Enable & start corp-app<br/>• Loopback readiness gate (/health) ONLY"]
+        P4["proof_of_life.yml — OPTIONAL, user-run<br/>• Deliberately open app firewall port (teaching moment)<br/>• Over the network: /health, seed in GET /, POST /record, 400 check"]
 
         P0 --> P1 --> P2 --> P3
         P3 -.->|optional, separate| P4
@@ -250,7 +250,7 @@ ansible-bootc/
 └── ansible/
     ├── ansible.cfg                           Run from ansible/ directory
     ├── requirements.yml                      ansible.mariadb, ansible.posix
-    ├── site.yml                              Deployment entrypoint (00–03; NOT proof-of-life)
+    ├── site.yml                              Deployment entrypoint (bootstrap → database → app_deploy → app_release; NOT proof-of-life)
     ├── inventory/
     │   ├── hosts.yml                         db01, app01 — update IPs here
     │   └── group_vars/
@@ -285,13 +285,13 @@ provisioned, never-onboarded host. Its lifecycle is invariant:
 |-------|------------------------|-----------|
 | Image build | PSK entry (with restrictive options), owned `5000:5000`, mode `0600` | `scripts/generate-demo-keys.sh` writes the file; Containerfile sets ownership/mode |
 | First boot | PSK entry present and usable | bootc applies `/var` tree at initial install only |
-| After `00_bootstrap.yml` | Live key only; PSK absent | `bootstrap_key_rotation` role installs live key, removes PSK |
+| After `bootstrap.yml` | Live key only; PSK absent | `bootstrap_key_rotation` role installs live key, removes PSK |
 | `bootc upgrade` | Unchanged (live key only) | `/var` is never merged or re-applied by bootc upgrade |
 | Reboot | Unchanged | `tmpfiles.d` has only `d` entries for `.ssh/`; existing files are not recreated |
-| Re-run `00_bootstrap.yml` | Unchanged | Play 1 probe fails (PSK gone); Play 2 skipped; Play 3 verifies live key still works |
+| Re-run `bootstrap.yml` | Unchanged | Play 1 probe fails (PSK gone); Play 2 skipped; Play 3 verifies live key still works |
 | Stale host (old image, new PSK generated) | Cannot be onboarded | Decommission and reprovision; never rescued |
 
-**Re-run console output note:** When re-running `00_bootstrap.yml` against an already-onboarded
+**Re-run console output note:** When re-running `bootstrap.yml` against an already-onboarded
 host, Play 1's recap will report `unreachable=1` in red. **This is expected and designed behavior**:
 because the PSK was removed at first contact, probing with the bootstrap key fails authentication.
 The task specifies `ignore_unreachable: true`, which skips Play 2's rotation and allows Play 3 to
@@ -314,7 +314,7 @@ stateDiagram-v2
     state FreshInstall {
         FirstBoot: /var populated from image (applied at initial install only)
     }
-    FreshInstall --> FirstContact: Ansible 00_bootstrap.yml (Play 1 probe succeeds)
+    FreshInstall --> FirstContact: Ansible bootstrap.yml (Play 1 probe succeeds)
     state FirstContact {
         Rotated: Play 2 adds id_ansible_live and deletes PSK
     }
@@ -335,7 +335,7 @@ stateDiagram-v2
                   ─────────────      ────────────        ────────────────────────    ───────────────────────────
   Host /var:      [PSK baked]   ──►  [PSK unpacked]  ──► [PSK removed, Live added] ──► [Live key retained; /var untouched]
                                                                   ▲
-  Ansible Node:   [Keys generated]   [Wait for IP]   ──► [00_bootstrap.yml runs]   ──► [Subsequent plays use Live key]
+  Ansible Node:   [Keys generated]   [Wait for IP]   ──► [bootstrap.yml runs]   ──► [Subsequent plays use Live key]
 ```
 
 ### No resurrection path
@@ -655,13 +655,13 @@ systemd and operators without any root filesystem workarounds.
 
 Deployment is split from demonstration on purpose:
 
-- **`02_app_deploy` (app play 1, "deploy"):** lay the payload down — install to `/opt/corp-app`,
+- **`app_deploy.yml` (app play 1, "deploy"):** lay the payload down — install to `/opt/corp-app`,
   build the venv, install pinned extras, render config and the unit. Nothing is started; no schema;
   no port opened.
-- **`03_app_release` (app play 2, "release/go-live"):** run the app's Alembic migrations (schema +
+- **`app_release.yml` (app play 2, "release/go-live"):** run the app's Alembic migrations (schema +
   `ansible-bootstrap` seed), enable and start the service, and confirm liveness with a single
   **loopback readiness gate** (`/health`). No functional exercises here.
-- **`04_proof_of_life` (optional, user-run):** the deliberate firewall-exposure step followed by
+- **`proof_of_life.yml` (optional, user-run):** the deliberate firewall-exposure step followed by
   real functional verification **over the network** (health, seed visibility, a write, and a
   malformed-input rejection). This is where "does it actually work for a user?" is answered, and it
   is never part of `site.yml`.
@@ -671,10 +671,10 @@ non-idempotent demonstration side effects out of the convergent deployment path.
 
 ### Database privilege scope: the app owns its schema
 
-The DB foundation role (`01_database`, DBA-owned) creates the application database and an account
+The DB foundation role (`database.yml`, DBA-owned) creates the application database and an account
 scoped to **that database only**, granting it the DDL (CREATE/ALTER/DROP) its migrations need plus
 the usual DML. It creates **no** tables and **no** seed data. The app team then owns its schema
-end to end via Alembic (run in `03_app_release`).
+end to end via Alembic (run in `app_release.yml`).
 
 **This is a deliberate, flagged simplification — read it as a lesson, not a recommendation.** This
 repo is an *example*, not a template to clone into production. A single account means the
@@ -688,7 +688,7 @@ silently.
 
 | Credential | Privileges | Used by | Lifetime |
 |------------|-----------|---------|----------|
-| Migration / schema-owner | DDL + DML | Alembic, at release time only | Ideally ephemeral — passed at `03_app_release` run time, never persisted on the host |
+| Migration / schema-owner | DDL + DML | Alembic, at release time only | Ideally ephemeral — passed at `app_release.yml` run time, never persisted on the host |
 | Runtime | Least privilege (here, `SELECT, INSERT`) | the running `corp-app` service | Long-lived, in `/etc/corp-app/config.ini` |
 
 That split enforces least privilege on the exposed surface, separates a privileged, deliberate
@@ -743,7 +743,7 @@ in this design recreates the PSK after rotation:
 - **Reboots** — `tmpfiles.d/ansible-home.conf` contains only `d` (directory create)
   entries for `.ssh/`. A `d` entry on a directory that already exists is a no-op;
   existing files (including `authorized_keys`) are never touched.
-- **Re-running `00_bootstrap.yml`** — Play 1 fails to authenticate via PSK (it is
+- **Re-running `bootstrap.yml`** — Play 1 fails to authenticate via PSK (it is
   already gone); Play 2 skips rotation (gated on explicit probe success); Play 3
   confirms the live key still works. `authorized_keys` is left unchanged.
 - **Rollback** — if a host rolls back to a previous image, `/var` is not re-applied;
@@ -854,9 +854,9 @@ from a template to `/etc/systemd/system/corp-app.service` alongside the payload 
 cannot run until its payload, config, and schema exist — but the mechanism is now "Ansible owns
 the unit," not "baked but not enabled":
 
-1. `02_app_deploy` installs the payload to `/opt/corp-app`, builds the venv, writes
+1. `app_deploy.yml` installs the payload to `/opt/corp-app`, builds the venv, writes
    `/etc/corp-app/config.ini`, and renders the unit — but does **not** start it.
-2. `03_app_release` runs the Alembic migration (schema + seed), then enables and starts it:
+2. `app_release.yml` runs the Alembic migration (schema + seed), then enables and starts it:
 
 ```yaml
 - ansible.builtin.systemd:
@@ -874,7 +874,7 @@ corp-app`. (Contrast the database, whose corporate unit drop-in *is* image-owned
 
 `corp-app` (a SQLAlchemy + Pydantic service) implements three endpoints that prove the complete
 bootstrap pattern end to end. The application **does not create schema** — its own **Alembic
-migration**, run by `03_app_release`, creates the `service_records` table and seeds the
+migration**, run by `app_release.yml`, creates the `service_records` table and seeds the
 `ansible-bootstrap` row before the service starts. (Schema is app-team territory; the DBA role
 provides only the empty database and an account with DDL on it.)
 
@@ -921,7 +921,7 @@ on first boot without requiring a running systemd daemon during the build.
 `systemctl edit corp-app` drop-ins or by re-templating via Ansible. Unlike the image-owned
 `mariadb` unit (where `systemctl edit` is the *only* non-destructive path because the base unit is
 immutable `/usr/lib` content), the `corp-app` unit is a normal machine-local file. Re-running
-`02_app_deploy` re-asserts the templated unit, so ad-hoc edits that must persist belong in the
+`app_deploy.yml` re-asserts the templated unit, so ad-hoc edits that must persist belong in the
 template or a drop-in, not in hand-edits to the rendered file.
 
 **Systemd sandboxing directives in `corp-app.service`:** The Ansible-rendered unit carries a
@@ -992,7 +992,7 @@ The onboarding state survives cleanly:
 Note the symmetry: the app payload under `/opt` (→ `/var/opt`) survives upgrades by the *exact same*
 install-only `/var` mechanism that preserves the MariaDB data and prevents the PSK from
 resurrecting. A `bootc upgrade` that ships a new runtime baseline (new Python, new corporate stack)
-does not disturb the deployed app; re-running `02_app_deploy`/`03_app_release` is how a new app
+does not disturb the deployed app; re-running `app_deploy.yml`/`app_release.yml` is how a new app
 version or a venv rebuild is rolled out.
 
 ### Package rationale
@@ -1073,10 +1073,10 @@ plugin. The playbooks and roles require no changes — only the inventory source
 
 | Symptom | Root Cause | Resolution |
 |---|---|---|
-| **Play 1 in `00_bootstrap.yml` reports `unreachable=1` on fresh VM** | PSK mismatch or SSH perms: keys regenerated after base image was built, or file permissions on `authorized_keys` are not `0600 (5000:5000)` | Rebuild `corp-base` after running `scripts/generate-demo-keys.sh`. Verify `id_bootstrap.pub` matches the baked PSK line. Check `bootc status` on the VM console. |
-| **`01_database.yml` fails with "app_db_password is still set to default placeholder"** | Vault file was encrypted without editing the placeholder password | Decrypt `ansible-vault decrypt inventory/group_vars/all/vault.yml`, set a strong password, and re-encrypt. |
-| **`01_database.yml` times out waiting for MariaDB socket** | MariaDB failed first-boot self-initialization or SELinux issue | Inspect target console: `journalctl -u mariadb -b`. Verify `00-corporate.cnf` syntax and disk space on `/var/lib/mysql`. |
-| **External `curl http://<app01>:8080/` times out or Connection Refused** | Normal post-release default-deny state (**G19 teaching moment**); loopback works but port is closed | Run `ansible-playbook playbooks/04_proof_of_life.yml` to execute Play 1's firewall-open step, or manually run `ansible -m ansible.posix.firewalld -a "port=8080/tcp state=enabled permanent=true immediate=true" -b app01`. |
+| **Play 1 in `bootstrap.yml` reports `unreachable=1` on fresh VM** | PSK mismatch or SSH perms: keys regenerated after base image was built, or file permissions on `authorized_keys` are not `0600 (5000:5000)` | Rebuild `corp-base` after running `scripts/generate-demo-keys.sh`. Verify `id_bootstrap.pub` matches the baked PSK line. Check `bootc status` on the VM console. |
+| **`database.yml` fails with "app_db_password is still set to default placeholder"** | Vault file was encrypted without editing the placeholder password | Decrypt `ansible-vault decrypt inventory/group_vars/all/vault.yml`, set a strong password, and re-encrypt. |
+| **`database.yml` times out waiting for MariaDB socket** | MariaDB failed first-boot self-initialization or SELinux issue | Inspect target console: `journalctl -u mariadb -b`. Verify `00-corporate.cnf` syntax and disk space on `/var/lib/mysql`. |
+| **External `curl http://<app01>:8080/` times out or Connection Refused** | Normal post-release default-deny state (**G19 teaching moment**); loopback works but port is closed | Run `ansible-playbook playbooks/expose_app.yml` to open the application port (`app_port`/tcp) in firewalld permanently and immediately, or manually run `ansible -m ansible.posix.firewalld -a "port=8080/tcp state=enabled permanent=true immediate=true" -b app01`. |
 | **`bootc upgrade` shows `/etc` conflict or local modifications** | Local hand-edits made to 3-way merge files (`/etc/my.cnf.d/`, `/etc/corp-app/`) conflicting with updated image | On conflict, bootc preserves the machine-local file and saves `.rpmnew`/`.rpmsave`. Reconcile with `bootc status` and re-run Ansible to re-converge. |
 
 ### Security non-additions: deliberate decisions
@@ -1103,7 +1103,7 @@ decisions that make this work are listed here.
 ### The one-credential-per-job constraint
 
 An AAP job template carries exactly one machine credential. This matters because
-`00_bootstrap.yml` uses two different SSH private keys: the bootstrap PSK for Plays 1
+`bootstrap.yml` uses two different SSH private keys: the bootstrap PSK for Plays 1
 and 2, and the live key for Play 3. Locally, the playbook handles the credential switch
 via per-play `ansible_ssh_private_key_file` overrides. Under AAP, the job template
 level is the credential boundary.
@@ -1115,7 +1115,7 @@ third:
 
 | AAP Job | Playbook(s) | Machine credential |
 |---------|-------------|--------------------|
-| **Bootstrap** | `playbooks/00_bootstrap.yml` | Bootstrap credential (`ansible/keys/id_bootstrap`) |
+| **Bootstrap** | `playbooks/bootstrap.yml` | Bootstrap credential (`ansible/keys/id_bootstrap`) |
 | **Workload** | `playbooks/database.yml` + `playbooks/app_deploy.yml` + `playbooks/app_release.yml` | Live credential (`ansible/keys/id_live`) |
 | **Proof-of-life (optional)** | `playbooks/proof_of_life.yml` | Live credential (`ansible/keys/id_live`) |
 | **Firewall expose (optional)** | `playbooks/expose_app.yml` | Live credential (`ansible/keys/id_live`) |
@@ -1128,8 +1128,8 @@ Bootstrap Job Template with `--skip-tags live_key_verify` (Play 3 carries this t
 inside the bootstrap job. The bootstrap job's responsibility ends when the PSK is
 successfully rotated out in Play 2.
 
-**Workload job:** Uses the live private key. Runs `01_database.yml`, then `02_app_deploy.yml`,
-then `03_app_release.yml`. No PSK is referenced in these playbooks. The workload job's first
+**Workload job:** Uses the live private key. Runs `database.yml`, then `app_deploy.yml`,
+then `app_release.yml`. No PSK is referenced in these playbooks. The workload job's first
 connection implicitly proves live-key connectivity. The live credential is sufficient for all
 workload automation.
 

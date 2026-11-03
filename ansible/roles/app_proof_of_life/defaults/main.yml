@@ -29,7 +29,7 @@
 
 # Message written by the POST /record write-verification probe.
 #
-# Each run of 04_proof_of_life.yml inserts one row with this message.
+# Each run of proof_of_life.yml inserts one row with this message.
 # This is a DELIBERATELY NON-IDEMPOTENT probe: re-running the playbook adds
 # one additional row per run. Probe rows must NOT be deleted — they are harmless
 # and their accumulation documents how many verification runs have been performed.
@@ -49,7 +49,7 @@ proof_seed_message: "ansible-bootstrap"
 # Number of retries for the network health check (Task 1).
 #
 # The health check runs from the control node over the network after the
-# firewall port has been opened by the 04_proof_of_life.yml firewall-exposure
+# firewall port has been opened by the proof_of_life.yml firewall-exposure
 # task. Unlike the loopback gate in app_release (30 retries for service start),
 # the service should already be running at this point — retries here cover
 # transient network or connection latency, not service startup time.
