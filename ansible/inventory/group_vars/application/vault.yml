@@ -10,5 +10,5 @@
 #   ansible-vault encrypt inventory/group_vars/application/vault.yml
 #
 # NOTE: app_db_password is NOT stored here. It lives exclusively in
-# group_vars/all/vault.yml (G4) so that both the mariadb_instance and app_instance
+# group_vars/all/vault.yml (G4) so that the mariadb_instance, app_deploy, and app_release
 # roles resolve the same value regardless of which host group they run against.
