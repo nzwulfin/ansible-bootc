@@ -5,7 +5,7 @@
 
 # IP address of the database host (db01).
 #
-# Interface agreement (design-spec.md §7.5, §9): this value MUST be identical to
+# Interface agreement: this value MUST be identical to
 # db01's ansible_host in inventory/hosts.yml. If they diverge, the config.ini
 # written by app_deploy will point at the wrong database host, and the application
 # will fail to connect while reporting a misleading hostname in its health endpoint.
@@ -25,7 +25,7 @@ db_host: 192.168.122.10   # Must match db01.ansible_host in hosts.yml
 app_port: 8080
 
 # ---------------------------------------------------------------------------
-# Application deployment standard variables (G14, design-spec.md §7.6)
+# Application deployment standard variables (G14)
 #
 # These variables define the deployment layout and are overridable so the
 # pattern is reusable across teams with different path conventions. The
@@ -45,7 +45,7 @@ app_venv: "{{ app_root }}/venv"
 
 # Path to the application payload source tree (the app/corp-app/ tree, or a built artifact).
 # Resolved relative to inventory_dir so the path is correct whether the playbook
-# is invoked via site.yml, directly from playbooks/, or under AAP (G11).
+# is invoked via site.yml, directly from playbooks/, or under AAP.
 app_src: "{{ inventory_dir ~ '/../../app/corp-app' }}"
 
 # The ExecStart entrypoint the rendered corp-app.service unit invokes.

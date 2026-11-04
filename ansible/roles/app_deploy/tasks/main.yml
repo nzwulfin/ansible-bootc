@@ -5,7 +5,7 @@
 # and lays down its instance configuration and systemd unit — without starting
 # the service, running migrations, or opening the firewall.
 #
-# Task sequence (design-spec.md §8.3):
+# Task sequence:
 #   1. Gather service facts (for conditional handler behaviour)
 #   2. Ensure /opt/corp-app directory exists
 #   3. Deliver application payload from source tree (idempotent copy)
@@ -24,7 +24,7 @@
 #   G14 — payload deployed to /opt/corp-app; venv with --system-site-packages
 #   G15 — corporate Python stack inherited from image; NOT re-installed here
 #   G16 — app extras installed only from pinned requirements.txt
-#   G17 — service NOT enabled or started (that is app_release, §8.4)
+#   G17 — service NOT enabled or started (that is app_release)
 #   G19 — no firewall port opened
 
 - name: Gather service facts for conditional handler behaviour
@@ -67,7 +67,7 @@
     creates: "{{ app_venv }}/bin/activate"
   # CRITICAL (G14, G15): --system-site-packages makes the baked corporate Python
   # stack (SQLAlchemy, Alembic, Pydantic, python3-PyMySQL, python3-psycopg2) visible
-  # inside the venv without re-installation or re-pinning (design-spec.md §6.2, G15).
+  # inside the venv without re-installation or re-pinning (G15).
   #
   # python3 -m venv is the standard Python 3 tool; creates: ensures idempotency with
   # zero warnings. App-specific extras are installed from requirements.txt in the next task.
@@ -123,9 +123,9 @@
   notify: Restart corp-app
   register: _corp_app_unit
   # Deploys to /etc/systemd/system/ — instance-owned, NOT baked (G7).
-  # The application image carries no corp-app.service unit (design-spec.md G7, §6.1).
+  # The application image carries no corp-app.service unit (G7).
   # The unit is NOT enabled or started here; app_release is responsible for
-  # enabling, starting, and confirming the service (design-spec.md §8.4, G17).
+  # enabling, starting, and confirming the service (G17).
   #
   # No firewall port is opened (G19); external reachability is a deliberate,
   # separately-labelled step in expose_app.yml.

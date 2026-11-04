@@ -2,7 +2,7 @@
 # app_release role defaults
 #
 # Overridable operational knobs for the go-live phase of the corporate application
-# deployment (design-spec.md §8.4).
+# deployment.
 #
 # This role is the second app-team play:
 #   app_deploy — deploys payload, venv, config, unit; does NOT start
@@ -12,15 +12,15 @@
 #   group_vars > role defaults. For hosts in the 'application' group,
 #   group_vars/application/vars.yml values (app_port, etc.) take precedence.
 #
-# Must NOT declare (design-spec.md §8.4 defaults contract):
+# Must NOT declare (role defaults contract):
 #   - app_db_password (G4: declared ONLY in all/vault.yml)
 #   - app_port     (instance var — group_vars/application/vars.yml)
 #   - app_db_name  (shared var  — group_vars/all/vars.yml)
 #   - app_db_user  (shared var  — group_vars/all/vars.yml)
 #   - db_host      (instance var — group_vars/application/vars.yml)
 #   - The seed message 'ansible-bootstrap' is a fixed interface value shared
-#     between the Alembic migration (§6.5), this role, and the proof-of-life
-#     assertion (§8.5). It must NOT be made an overridable knob.
+#     between the Alembic migration, this role, and the proof-of-life
+#     assertion. It must NOT be made an overridable knob.
 
 # Payload install root.
 # On bootc, /opt resolves under /var/opt (persistent, Ansible-owned, preserved
@@ -37,7 +37,7 @@ app_venv: "{{ app_root }}/venv"
 
 # Name of the systemd service unit (without the .service suffix).
 # Must match the unit filename deployed by app_deploy to
-# /etc/systemd/system/corp-app.service (design-spec.md §9, app unit path agreement).
+# /etc/systemd/system/corp-app.service.
 app_service_name: "corp-app"
 
 # Command used to invoke Alembic inside the venv.
@@ -47,9 +47,9 @@ app_service_name: "corp-app"
 alembic_bin: "{{ app_venv }}/bin/python3 -m alembic"
 
 # Path to the Alembic configuration file (alembic.ini) inside the migration tree.
-# The migration tree is deployed to app_root/migrations/ by app_deploy (§8.3 task 2).
+# The migration tree is deployed to app_root/migrations/ by app_deploy.
 # The Alembic config reads the DB connection from /etc/corp-app/config.ini so that
-# migrations and the running service target the identical database (§6.5).
+# migrations and the running service target the identical database.
 alembic_config: "{{ app_root }}/migrations/alembic.ini"
 
 # Readiness gate retry count.

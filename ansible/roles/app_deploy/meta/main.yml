@@ -13,7 +13,8 @@ galaxy_info:
     without re-installation, G14/G15), installs app-specific pinned extras
     from requirements.txt (G9/G16), renders /etc/corp-app/config.ini (G12),
     and renders /etc/systemd/system/corp-app.service (G7). Does NOT start
-    the service or open any firewall port (that is app_release, G17/G19).
+    the service or open any firewall port (service start is app_release;
+    exposure is the separate expose_app step, G17/G19).
   license: Apache-2.0
   min_ansible_version: "2.14"
 

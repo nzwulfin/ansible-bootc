@@ -7,7 +7,7 @@
 #   - the corp-app.service template task  (unit change)
 #
 # Two handlers share the same listen label so both execute in order when
-# the notification fires (design-spec.md §8.3 handler contract):
+# the notification fires (handler contract):
 #
 #   1. daemon_reload  — always runs when notified; ensures systemd sees the
 #      new or updated unit definition whether or not the service is active.

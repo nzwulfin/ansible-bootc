@@ -9,9 +9,8 @@
 # seed data (INSERT INTO). Schema and seed are app-team territory, owned by the
 # app's Alembic migrations and applied by app_release.yml. See also:
 #   app/corp-app/migrations/    ← authoritative schema definition
-#   design-spec.md §8.2, §12 Task 7
 #
-# Standalone usage (run from the ansible/ directory — G11):
+# Standalone usage (run from the ansible/ directory):
 #   ansible-playbook playbooks/database.yml
 #
 # AAP usage:
@@ -25,8 +24,6 @@
 # Constraints honoured:
 #   G9  — no package management tasks; all runtime dependencies are baked
 #         into the database image.
-#   G11 — designed to run from the ansible/ directory; all paths in ansible.cfg
-#         are relative to that directory.
 #   G17 — deployment plays do not create schema or seed data; those are
 #         applied by the app team in app_release.yml.
 

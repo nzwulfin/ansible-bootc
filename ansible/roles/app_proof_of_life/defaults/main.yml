@@ -1,8 +1,8 @@
 ---
 # app_proof_of_life role defaults
 #
-# Overridable operational knobs for the optional network verification exercise
-# (design-spec.md §8.5). This role is invoked by proof_of_life.yml,
+# Overridable operational knobs for the optional on-host functional verification
+# exercise. This role is invoked by proof_of_life.yml,
 # never by site.yml or any deployment play (G17).
 #
 # Tasks in this role run on the application host over loopback to verify that
@@ -13,7 +13,7 @@
 #   group_vars/application/vars.yml values (app_port, ansible_host, etc.)
 #   take precedence over anything declared here.
 #
-# Must NOT declare (design-spec.md §8.5 defaults contract):
+# Must NOT declare (role defaults contract):
 #   - app_db_password  (G4: declared ONLY in all/vault.yml)
 #   - app_port         (instance var — group_vars/application/vars.yml)
 #   - ansible_host     (inventory var — hosts.yml, resolved automatically)
@@ -22,8 +22,8 @@
 # The seed message 'ansible-bootstrap' IS declared here as proof_seed_message
 # because the proof-of-life role must assert it. It is not an independently
 # overridable value — it is a fixed interface value shared between:
-#   - The Alembic initial migration (design-spec.md §6.5)
-#   - The app_proof_of_life seed-visibility assertion (§8.5, Task 2 below)
+#   - The Alembic initial migration
+#   - The app_proof_of_life seed-visibility assertion (Task 2 below)
 # Changing it here without changing the migration would silently break the assertion.
 # The value is surfaced as a named knob for legibility, not for independent variation.
 
@@ -33,20 +33,19 @@
 # This is a DELIBERATELY NON-IDEMPOTENT probe: re-running the playbook adds
 # one additional row per run. Probe rows must NOT be deleted — they are harmless
 # and their accumulation documents how many verification runs have been performed.
-# (design-spec.md §7.11, §8.5)
 proof_verify_message: "ansible-proof-of-life"
 
 # Message to assert in GET / records — the Alembic migration seed value.
 #
 # Must match exactly the 'message' value inserted by the app's initial Alembic
-# migration (design-spec.md §6.5, interface agreement §9: "Seed record message").
+# migration (the seed record message interface agreement).
 # The proof-of-life assertion proves that:
 #   (a) the app_release role ran Alembic upgrade head successfully,
 #   (b) the seed row reached the data layer,
-#   (c) the running app can read and return it over the network.
+#   (c) the running app can read and return it over loopback on the app host.
 proof_seed_message: "ansible-bootstrap"
 
-# Number of retries for the network health check (Task 1).
+# Number of retries for the loopback health check (Task 1).
 #
 # The health check runs on the application host over loopback; external
 # firewall exposure is the separate expose_app.yml step. Unlike the loopback
@@ -55,5 +54,5 @@ proof_seed_message: "ansible-bootstrap"
 # transient network or connection latency, not service startup time.
 proof_health_retries: 5
 
-# Delay in seconds between network health check retries.
+# Delay in seconds between loopback health check retries.
 proof_health_delay: 2

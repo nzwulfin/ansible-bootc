@@ -259,7 +259,7 @@ Follow the operator workflow to experience the default-deny firewall posture:
 - [Application design](docs/application-design.md) — the corporate Python standard, deploy/release/proof-of-life, and firewall posture.
 - [AAP compatibility](docs/aap-compatibility.md) — running the same playbooks under Ansible Automation Platform.
 - [Troubleshooting](docs/troubleshooting.md) — common failure modes and deliberate security non-additions.
-- [Project documents](docs/project/) — the original requirements (`plan.md`) and technical design specification (`design-spec.md`). Gate IDs (G1, G4, G9, …) quoted in comments and docs are defined in the design specification.
+- [Requirements](docs/project/requirements.md) — the canonical normative requirements and acceptance criteria for this pattern. Gate IDs (G1, G4, G9, …) quoted in comments and docs are defined there.
 
 ## Naming convention
 

@@ -79,7 +79,7 @@
   # injected at release time and revoked immediately after.
   #
   # This gap is named here, in the README (Practitioner Notes), and in the
-  # acceptance criteria (design-spec.md §12 Task 7). It is intentional and
+  # requirements document's integration and lifecycle sections. It is intentional and
   # signposted so the example teaches correct intent, not silent anti-pattern.
   # The complexity of two accounts is off-thesis for this reference pattern and
   # would compete with the core bootc/Ansible lesson — but it is never left

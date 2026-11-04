@@ -3,7 +3,7 @@
 #
 # STRUCTURAL PLACEHOLDER — no database-group-specific secrets exist in this design.
 # This file exists for structural completeness and to allow future additions without
-# a directory layout change (design-spec.md §7.6).
+# a directory layout change.
 #
 # If group-specific secrets are added in the future, encrypt this file with:
 #   cd ansible/

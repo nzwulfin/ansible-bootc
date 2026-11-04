@@ -14,7 +14,6 @@
 # Constraints honoured:
 #   G2  — authorized_key_user holds the account name (ansible), never a
 #         UID; it feeds the authorized_key module's user: field.
-#   G11 — key file paths are relative to the ansible/ run directory.
 
 # Account name for the authorized_key module's user: field (G2). The
 # management account is pinned to UID/GID 5000 in the base image, but
@@ -22,7 +21,7 @@
 authorized_key_user: ansible
 
 # Path to the bootstrap (PSK) private key, relative to the ansible/ run
-# directory (G11). This is the value the play-level
+# directory. This is the value the play-level
 # ansible_ssh_private_key_file override in playbooks/bootstrap.yml
 # falls back to; the key file itself is generated, gitignored material.
 bootstrap_key_path: keys/id_bootstrap

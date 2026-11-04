@@ -26,7 +26,7 @@
     exclusive: false
     key: "{{ lookup('file', live_pubkey_path) }}"
   # lookup('file', ...) reads the public key file locally on the control
-  # node (path relative to the ansible/ run directory, G11). The module
+  # node (path relative to the ansible/ run directory). The module
   # matches by fingerprint, so an already-present live key is a no-op.
   # exclusive: false guarantees no key other than this one is touched.
 

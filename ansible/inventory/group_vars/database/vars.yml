@@ -5,7 +5,7 @@
 
 # IP address of the application host (app01).
 #
-# Interface agreement (design-spec.md §7.5, §9): this value MUST be identical to
+# Interface agreement: this value MUST be identical to
 # app01's ansible_host in inventory/hosts.yml. If they diverge:
 #   - The MariaDB account created by mariadb_instance will have a host restriction
 #     that does not match the actual application host IP, silently blocking connections.
