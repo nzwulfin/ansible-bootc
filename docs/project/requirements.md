@@ -154,8 +154,8 @@ site-packages. The shared corporate Python stack is baked, not installed at runt
 application executable and the Alembic migration environment hardcode the expected path,
 `/etc/corp-app/config.ini` in the current fixture, and the Ansible deployment template writes
 to that same path. The systemd unit only launches the executable and does not name the
-config path. If the template and either consumer diverge, the application fails to read its
-database configuration, and the failure is silent or misleading rather than a startup error.
+config path. If the template and either consumer diverge, service startup or migration fails
+because the configuration cannot be read.
 
 **G14 — Application payloads deploy at runtime to persistent machine-local storage.** No
 image bakes application code. The runtime image must provide a persistent, writable
