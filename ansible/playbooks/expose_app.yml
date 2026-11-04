@@ -23,7 +23,7 @@
 #   - Port {{ app_port }}/tcp is open in firewalld (permanent + immediate).
 #   - The application is reachable from the network.
 #
-# Run from the ansible/ directory (G11):
+# Run from the ansible/ directory:
 #   ansible-playbook playbooks/expose_app.yml
 
 - name: Expose application port in firewall (deliberate operational step)

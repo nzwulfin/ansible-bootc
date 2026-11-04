@@ -2,14 +2,14 @@
 # app_deploy role defaults
 #
 # Overridable operational knobs with sensible defaults implementing the
-# corporate application deployment standard (G14, design-spec.md §8.3).
+# corporate application deployment standard (G14).
 #
 # These defaults serve as documentation of the corporate standard and as
 # fallbacks when the role is used outside the 'application' group. For hosts
 # in the 'application' group, group_vars/application/vars.yml values take
 # precedence (Ansible variable precedence: group_vars > role defaults).
 #
-# Must NOT declare (design-spec.md §8.3 defaults contract):
+# Must NOT declare (role defaults contract):
 #   - app_db_password (G4: declared ONLY in all/vault.yml)
 #   - app_db_name, app_db_user (shared vars from group_vars/all/vars.yml)
 #   - db_host, app_port (instance vars from group_vars/application/vars.yml)
@@ -28,7 +28,7 @@ app_root: "/opt/corp-app"
 app_venv: "{{ app_root }}/venv"
 
 # Path to the application payload source tree (app/corp-app/ or a built artifact).
-# Uses inventory_dir (always ansible/inventory/ per ansible.cfg, G11) to navigate
+# Uses inventory_dir (always ansible/inventory/ per ansible.cfg) to navigate
 # to the repo root — resolves correctly whether the role is invoked via site.yml
 # (playbook_dir = ansible/) or directly via playbooks/app_deploy.yml
 # (playbook_dir = ansible/playbooks/). inventory_dir is stable in both cases.

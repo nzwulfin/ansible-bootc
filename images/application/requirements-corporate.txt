@@ -20,13 +20,12 @@
 #               (not available as standalone AppStream RPM; python3 also provides stdlib venv).
 #   sqlalchemy  ORM and SQL abstraction layer; the corporate standard for
 #               all relational DB access. Imported directly by the
-#               application payload (Section 6.3) and by Alembic migrations.
+#               application payload and by Alembic migrations.
 #   alembic     Database schema migration tool built on SQLAlchemy. The
 #               app_release role invokes `alembic upgrade head` to apply
-#               the app-owned migration tree before starting the service
-#               (Section 8.4, Section 6.5).
+#               the app-owned migration tree before starting the service.
 #   pydantic    Data validation library; used by the application payload
-#               for request body validation on POST /record (Section 6.3).
+#               for request body validation on POST /record.
 #               Pinned to the v2 API — ensure app payload imports use the
 #               v2 interface (pydantic.BaseModel, etc.).
 wheel==0.45.1

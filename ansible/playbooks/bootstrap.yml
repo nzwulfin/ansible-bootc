@@ -2,7 +2,7 @@
 # ansible/playbooks/bootstrap.yml
 #
 # PSK probe -> key rotation -> live key verification: the single discrete
-# onboarding unit (design-spec.md Section 7.7).
+# onboarding unit.
 #
 #   Play 1  Probe every host with the bootstrap (PSK) key.
 #   Play 2  On explicit probe success, install the live key and remove
@@ -14,7 +14,7 @@
 # boundary — Plays 1-2 override ansible_ssh_private_key_file to the
 # bootstrap key; Play 3 falls back to the ansible.cfg default (live key).
 #
-# Standalone usage (run from the ansible/ directory — G11):
+# Standalone usage (run from the ansible/ directory):
 #   ansible-playbook playbooks/bootstrap.yml
 #
 # AAP usage:
@@ -44,7 +44,7 @@
     # live key (keys/id_live); the bootstrap phase explicitly uses the
     # bootstrap private key. The fallback resolves relative to
     # playbook_dir (the playbooks/ directory), so the path is stable
-    # whether the playbook runs from ansible/ (G11) or is imported by
+    # whether the playbook runs from ansible/ or is imported by
     # site.yml; bootstrap_key_path (role default or extra var)
     # overrides the fallback when provided.
     ansible_ssh_private_key_file: "{{ bootstrap_key_path | default(playbook_dir ~ '/../keys/id_bootstrap') }}"

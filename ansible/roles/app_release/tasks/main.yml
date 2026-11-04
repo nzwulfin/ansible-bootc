@@ -6,7 +6,7 @@
 # with a single loopback readiness gate. No functional exercises, no firewall
 # exposure.
 #
-# Task sequence (design-spec.md §8.4):
+# Task sequence:
 #   1. Run Alembic migrations (create service_records + idempotent seed)
 #   2. Enable and start corp-app.service (G7: Ansible owns enable/start)
 #   3. Loopback readiness gate — poll /health until 200 (G17, G19)
@@ -19,7 +19,7 @@
 #   G9  — no OS package installation
 #   G17 — readiness gate is the ONLY verification permitted in release;
 #          no GET / seed assertions, no POST /record write probes, no
-#          negative-input tests (those are app_proof_of_life, §8.5)
+#          negative-input tests (those are app_proof_of_life)
 #   G19 — no external firewall port opened; readiness gate runs over loopback
 #          so it passes while the service remains externally unreachable
 #          (default-deny teaching moment)
@@ -37,16 +37,16 @@
   # line and changed_when evaluates to false.
   #
   # This task creates the service_records table and inserts the single
-  # 'ansible-bootstrap' seed row (design-spec.md §6.5). The seed is applied
+  # 'ansible-bootstrap' seed row. The seed is applied
   # idempotently by the migration — a re-run does not duplicate the row.
   #
-  # The app DB account (DDL-on-own-database, §8.2) is the credential; Alembic
+  # The app DB account (DDL on its own database) is the credential; Alembic
   # reads the connection URL from /etc/corp-app/config.ini (G12), ensuring
   # migrations and the running service always target the identical database.
   #
   # chdir sets the working directory so Alembic can locate the versions/
   # subdirectory relative to alembic.ini (consistent with the migration tree
-  # layout produced by app_deploy, §8.3 task 2).
+  # layout produced by app_deploy).
 
 - name: Enable and start corp-app service
   ansible.builtin.systemd:
@@ -77,7 +77,7 @@
   # G17: This loopback poll is the ONLY verification permitted in the release
   # role — a liveness confirmation that the service came up, not a functional
   # test. All functional verification (GET / seed assertions, POST /record write
-  # probes, negative-input checks) lives exclusively in app_proof_of_life (§8.5).
+  # probes, negative-input checks) lives exclusively in app_proof_of_life.
   #
   # G19: The URI targets 127.0.0.1 (loopback on the app host), not the external
   # IP. The service binds 0.0.0.0 but the external firewall port is NOT opened
@@ -86,8 +86,7 @@
   # posture); external exposure is a deliberate, separately-labelled step in
   # expose_app.yml.
   #
-  # app_port is declared in group_vars/application/vars.yml (not a role default,
-  # per the §8.4 defaults contract).
+  # app_port is declared in group_vars/application/vars.yml, not as a role default.
 
 - name: Assert health endpoint reports database connected
   ansible.builtin.assert:
@@ -108,4 +107,7 @@
   #
   # This is NOT a functional test: no data is read, no writes are performed,
   # and no seed content is asserted (G17). The proof-of-life role asserts seed
-  # visibility and exercises the full read/write path over the network (§8.5).
+  # visibility and exercises the full read/write path over loopback on the
+  # application host. The application's own connection to the remote MariaDB
+  # still crosses the network; that is separate from external exposure of the
+  # application port.

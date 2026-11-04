@@ -4,7 +4,7 @@
 # Releases the application to a live, running state.
 # Application Development ownership — play 2 of 2 (go-live, after app_deploy.yml).
 #
-# Standalone usage (run from the ansible/ directory — G11):
+# Standalone usage (run from the ansible/ directory):
 #   ansible-playbook playbooks/app_release.yml
 #
 # AAP usage:
@@ -15,7 +15,7 @@
 #
 # Scope — this playbook:
 #   1. Runs the app-owned Alembic migrations (creates service_records table and
-#      the idempotent 'ansible-bootstrap' seed row — design-spec.md §6.5).
+#      the idempotent 'ansible-bootstrap' seed row).
 #   2. Enables and starts corp-app.service (G7: Ansible owns enable/start;
 #      the image never did).
 #   3. Polls http://127.0.0.1:{{ app_port }}/health over loopback until the
@@ -55,9 +55,9 @@
 #
 # Those exercises live exclusively in proof_of_life.yml, which a user runs
 # by hand to demonstrate the system over loopback.
-# Proof-of-life is NOT imported by site.yml and is NOT a deployment prerequisite
-# (design-spec.md G17). Mixing functional tests into a deployment play would
-# make deployment non-idempotent and obscure the deploy/test boundary.
+# Proof-of-life is NOT imported by site.yml and is NOT a deployment prerequisite.
+# Mixing functional tests into a deployment play would make deployment
+# non-idempotent and obscure the deploy/test boundary.
 
 - name: Release application (run migrations, enable service, verify loopback readiness)
   hosts: application

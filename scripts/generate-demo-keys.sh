@@ -8,7 +8,7 @@
 # Must be run before any image build. After running this script the base image
 # MUST be rebuilt so the new PSK is baked in.
 #
-# Placement rationale (G13): This script lives under scripts/ at the repo root
+# Placement rationale: This script lives under scripts/ at the repo root
 # because it crosses the images/ansible boundary — it writes into
 # images/base/rootfs/ (image build context) AND generates keys consumed by
 # ansible/keys/ (Ansible runtime). It must not be placed inside either subtree.

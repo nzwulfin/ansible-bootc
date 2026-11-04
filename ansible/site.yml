@@ -34,7 +34,7 @@
 #   ansible-playbook playbooks/proof_of_life.yml  # on-host verification
 #   ansible-playbook playbooks/expose_app.yml     # open external firewall port
 #
-# Standalone usage (all four deployment phases, from the ansible/ directory — G11):
+# Standalone usage (all four deployment phases, from the ansible/ directory):
 #   cd ansible/
 #   ansible-playbook site.yml
 #

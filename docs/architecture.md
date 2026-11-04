@@ -156,8 +156,7 @@ ansible-bootc/
 │   ├── aap-compatibility.md                  Running under Ansible Automation Platform
 │   ├── troubleshooting.md                    Failure modes and security non-additions
 │   └── project/
-│       ├── plan.md                           Requirements and design decisions
-│       └── design-spec.md                    Technical design specification
+│       └── requirements.md                   Canonical normative requirements and acceptance criteria
 ├── scripts/
 │   ├── setup-demo-host.sh                    Automated local demo setup (host packages, libvirt, VMs)
 │   └── generate-demo-keys.sh                 MUST run before any image build
@@ -209,7 +208,7 @@ ansible-bootc/
         ├── mariadb_instance/                 DB + account + firewall narrowing (schema-free)
         ├── app_deploy/                       Payload, venv, pinned extras, config, unit
         ├── app_release/                      Alembic migrate, enable/start, readiness gate
-        └── app_proof_of_life/                Network functional verification (exercise)
+        └── app_proof_of_life/                On-host functional verification over loopback (exercise)
 ```
 
 ## Team split: layering is the boundary

@@ -4,7 +4,7 @@
 # Deploys the application payload onto the corporate Python runtime baseline.
 # Application Development ownership — play 1 of 2 (deploy, not go-live).
 #
-# Standalone usage (run from the ansible/ directory — G11):
+# Standalone usage (run from the ansible/ directory):
 #   ansible-playbook playbooks/app_deploy.yml
 #
 # AAP usage:
