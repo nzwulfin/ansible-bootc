@@ -2,24 +2,17 @@
 """
 corp-app: Corporate application HTTP service.
 
-Configuration is read exclusively from /etc/corp-app/config.ini (G12).
-This path is hardcoded — the contract shared with the app_deploy Ansible
-role template and the systemd unit's process. Any divergence silently
-breaks the application.
+Configuration is read exclusively from /etc/corp-app/config.ini.
+This path is hardcoded and not overridable.
 
-Imports the corporate Python stack baked into the runtime image: SQLAlchemy,
-Pydantic, and PyMySQL (G15). Do not re-install, shadow, or pin alternate
-versions of these packages in requirements.txt.
+Imports SQLAlchemy, Pydantic, and PyMySQL.
 
 Schema is owned by Alembic migrations in migrations/; this running service
 issues no DDL at request time. Tables and seed data are created by
-`alembic upgrade head` in the app_release Ansible role before this service
-is started.
+`alembic upgrade head` before this service is started.
 
 Binds on 0.0.0.0 at [server] port (default 8080). The bind address is a
-fixed property of the executable — not config-driven. Actual network
-reachability is governed by the firewall, which is deliberately left closed
-until the user runs 04_proof_of_life.yml (G19).
+fixed property of the executable — not config-driven.
 """
 
 from __future__ import annotations
@@ -33,27 +26,23 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import quote_plus, urlsplit
 
 # ---------------------------------------------------------------------------
-# Hardcoded config path (G12)
-# Must match:
-#   - ansible/roles/app_deploy/templates/config.ini.j2  (dest:)
-#   - the systemd unit ExecStart process environment
-# A mismatch between any two of these silently breaks the application.
+# Hardcoded config path
+# Not overridable: any mechanism that allows a different path would break
+# the application's configuration contract.
 # ---------------------------------------------------------------------------
 CONFIG_PATH = "/etc/corp-app/config.ini"
 
 # ---------------------------------------------------------------------------
-# Corporate stack imports — baked into the runtime image (G15).
-# If these fail, the runtime image is misconfigured; we exit with a clear
-# diagnostic rather than letting the service start in a broken state.
+# Corporate stack imports.
+# If these fail, exit with a clear diagnostic rather than letting the
+# service start in a broken state.
 # ---------------------------------------------------------------------------
 try:
     import sqlalchemy as sa
     from sqlalchemy import create_engine, text
 except ImportError as _exc:
     print(
-        f"FATAL: SQLAlchemy not importable: {_exc}\n"
-        "  The corporate Python stack must be baked into the runtime image (G15).\n"
-        "  Check images/application/Containerfile and the --system-site-packages venv.",
+        f"FATAL: failed to import SQLAlchemy: {_exc}",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -101,8 +90,7 @@ try:
 
 except ImportError as _exc:
     print(
-        f"FATAL: Pydantic not importable: {_exc}\n"
-        "  The corporate Python stack must be baked into the runtime image (G15).",
+        f"FATAL: failed to import Pydantic: {_exc}",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -115,12 +103,10 @@ except ImportError as _exc:
 
 def load_config() -> configparser.ConfigParser:
     """
-    Load application configuration from /etc/corp-app/config.ini (G12).
+    Load application configuration from /etc/corp-app/config.ini.
 
     Exits non-zero with a clear diagnostic if the file is absent or if a
-    required section is missing. The config path is never overridable — any
-    mechanism that allows a different path would break the three-way agreement
-    between the executable, the Ansible template, and the systemd unit (G12).
+    required section is missing. The config path is never overridable.
     """
     cfg = configparser.ConfigParser()
     files_read = cfg.read(CONFIG_PATH)
@@ -128,7 +114,6 @@ def load_config() -> configparser.ConfigParser:
     if not files_read:
         print(
             f"FATAL: Configuration file not found: {CONFIG_PATH}\n"
-            "  Deploy the application config with the app_deploy Ansible role first.\n"
             "  The service will not start without a valid config file.",
             file=sys.stderr,
         )
@@ -154,9 +139,7 @@ def build_engine(cfg: configparser.ConfigParser) -> sa.Engine:
     """
     Build the SQLAlchemy connection pool from [database] config.
 
-    Uses the PyMySQL dialect (mysql+pymysql) with charset=utf8mb4, matching
-    the corporate database standard in
-    images/database/rootfs/etc/my.cnf.d/00-corporate.cnf (Section 5.2).
+    Uses the PyMySQL dialect (mysql+pymysql) with charset=utf8mb4.
 
     user and password are percent-encoded with quote_plus so that special
     characters (e.g. @, /, #, +) in credentials do not corrupt the URL.
@@ -214,7 +197,7 @@ class AppHandler(BaseHTTPRequestHandler):
     Route table:
       GET  /         → service info + 50 most-recent service_records rows
       POST /record   → Pydantic-validated insert, returns 201 with inserted row
-      GET  /health   → DB connectivity check (loopback readiness gate endpoint)
+      GET  /health   → DB connectivity check
       <known path, wrong method> → 405 JSON
       <any other path or method> → 404 JSON
     """
@@ -363,7 +346,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
         On DB error: HTTP 503 with a JSON error body. The connection is
         always released via the 'with engine.connect()' context manager,
-        including on error paths (G§6.3: no connection leaks).
+        including on error paths.
         """
         try:
             with self.engine.connect() as conn:
@@ -420,11 +403,6 @@ class AppHandler(BaseHTTPRequestHandler):
         """
         GET /health — DB connectivity check and row count.
 
-        This is the endpoint polled by the app_release readiness gate over
-        loopback (127.0.0.1) before the service is declared healthy (G17, G19).
-        External access is deliberately prevented by the closed firewall port
-        until the user runs 04_proof_of_life.yml (G19).
-
         On success: HTTP 200
           {"database": "connected", "count": <n>, "detail": "ok"}
 
@@ -463,7 +441,7 @@ class AppHandler(BaseHTTPRequestHandler):
         On DB error: HTTP 503 with JSON error body.
 
         The running service issues no DDL — the service_records table must
-        already exist (created by alembic upgrade head in app_release).
+        already exist (created by `alembic upgrade head`).
         """
         body_bytes = self._read_body()
 
@@ -481,7 +459,7 @@ class AppHandler(BaseHTTPRequestHandler):
             )
             return
 
-        # Pydantic validation: non-empty string message (§6.3 spec requirement)
+        # Pydantic validation: non-empty string message
         try:
             record_req = RecordRequest(**body_json)
         except ValidationError as exc:
@@ -533,7 +511,7 @@ class AppHandler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
 
     def log_message(self, fmt: str, *args: object) -> None:
-        """Write access log entries to stdout; systemd/journald captures both streams."""
+        """Write access log entries to stdout."""
         print(
             f"{self.address_string()} [{self.log_date_time_string()}] "
             f"{fmt % args}"
@@ -553,7 +531,7 @@ def main() -> None:
     db_name = cfg.get("database", "name")
     server_port = cfg.getint("server", "port", fallback=8080)
 
-    # Build the shared SQLAlchemy connection pool (corporate stack: PyMySQL + SQLAlchemy, G15)
+    # Build the shared SQLAlchemy connection pool (corporate stack: PyMySQL + SQLAlchemy)
     engine = build_engine(cfg)
 
     # Inject shared state into the handler class before the server starts.
@@ -563,9 +541,7 @@ def main() -> None:
     AppHandler.db_host = db_host
 
     # Bind address is fixed at 0.0.0.0 — not config-driven.
-    # [server] port comes from config; no bind_address key (G12).
-    # Actual external reachability is governed by the firewall, which is
-    # deliberately left closed after app_release until the user opens it (G19).
+    # [server] port comes from config; no bind_address key.
     bind_address = "0.0.0.0"
 
     server = ThreadingHTTPServer((bind_address, server_port), AppHandler)
@@ -574,11 +550,7 @@ def main() -> None:
         f"corp-app starting\n"
         f"  Listening : {bind_address}:{server_port}\n"
         f"  Database  : {db_name} @ {db_host}\n"
-        f"  Config    : {CONFIG_PATH}\n"
-        f"  Note      : Port {server_port} is closed externally until deliberately\n"
-        f"              exposed by the user (04_proof_of_life.yml). A service that\n"
-        f"              passes the loopback /health check is NOT yet network-reachable."
-        f"              This is the expected default-deny posture (G19)."
+        f"  Config    : {CONFIG_PATH}"
     )
 
     try:
