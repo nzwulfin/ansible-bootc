@@ -48,9 +48,9 @@ proof_seed_message: "ansible-bootstrap"
 
 # Number of retries for the network health check (Task 1).
 #
-# The health check runs from the control node over the network after the
-# firewall port has been opened by the proof_of_life.yml firewall-exposure
-# task. Unlike the loopback gate in app_release (30 retries for service start),
+# The health check runs on the application host over loopback; external
+# firewall exposure is the separate expose_app.yml step. Unlike the loopback
+# gate in app_release (30 retries for service start),
 # the service should already be running at this point — retries here cover
 # transient network or connection latency, not service startup time.
 proof_health_retries: 5

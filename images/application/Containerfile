@@ -1,7 +1,7 @@
 # Application runtime image — reusable corporate Python runtime baseline.
 #
 # This image is the SINGLE SOURCE OF TRUTH for the corporate Python stack (G15).
-# It is a RUNTIME BASELINE owned by the app-platform/runtime team:
+# It is a RUNTIME BASELINE owned by Middleware:
 #
 #   - Bakes NO application code, executable, or migration scripts (G7, G14)
 #   - Carries NO systemd unit for any workload (G7)
@@ -9,7 +9,7 @@
 #     runtime by a human operator, deliberately separated as a teaching moment
 #     about default-deny posture (G19)
 #
-# App-feature teams build ON this image via Ansible (app_deploy + app_release
+# Application Development teams build ON this image via Ansible (app_deploy + app_release
 # roles). They install app-specific extras into /opt/corp-app/venv and render
 # /etc/systemd/system/corp-app.service at release time — nothing is baked here.
 #
@@ -19,7 +19,7 @@
 # BUILD ORDER:
 #   scripts/generate-demo-keys.sh          # generate PSK and live keys
 #   podman build -t corp-base:latest images/base/
-#   podman build -t corp-app-img:latest images/application/
+#   podman build -t corp-app:latest images/application/
 #
 # Corporate Python standard baked here (G15 — single source of truth):
 #   Tier 1  Core runtime:          python3, python3-pip, python3-virtualenv,
