@@ -6,10 +6,8 @@ Create Date: 2026-01-01 00:00:00.000000
 
 OWNERSHIP
 ---------
-Schema is app-team territory. This migration — not the mariadb_instance DBA role
-(ansible/roles/mariadb_instance) — creates the table and seeds the initial row.
-The DBA role provisions the database container (database + account + access);
-the app team fills it (schema + data). See design spec §8.2 and §8.4.
+Schema is app-team territory. This migration creates the table and seeds the
+initial row.
 
 SEED ROW IDEMPOTENCY
 --------------------
@@ -19,9 +17,7 @@ revision 001. The explicit COUNT == 0 guard is belt-and-suspenders safety that
 prevents a duplicate seed row if the migration is somehow replayed (e.g., after
 a manual reset of alembic_version). Re-running produces no changes either way.
 
-The ansible-bootstrap seed is the proof-of-life marker: 04_proof_of_life.yml
-asserts that this exact message value appears in GET / output, proving the
-app-owned migration reached the data layer (design spec §8.5).
+The ansible-bootstrap seed row is the initial value returned by GET /.
 """
 
 from __future__ import annotations
@@ -46,12 +42,10 @@ def upgrade() -> None:
       created_at — TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
     No per-table character-set override: the table inherits utf8mb4 /
-    utf8mb4_unicode_ci from the database's default (set in
-    images/database/rootfs/etc/my.cnf.d/00-corporate.cnf, §5.2).
+    utf8mb4_unicode_ci from the database's default character set.
 
     The running corp-app service issues NO DDL. This migration runs before
-    the service is started, via "alembic upgrade head" in the app_release
-    Ansible role (design spec §8.4).
+    the service is started, via "alembic upgrade head".
     """
     # Create the service_records table.
     # Column types map to the MariaDB DDL equivalent:
@@ -113,7 +107,7 @@ def downgrade() -> None:
     Drop service_records.
 
     WARNING: This removes all rows including the ansible-bootstrap seed and any
-    records created by POST /record or 04_proof_of_life.yml probe runs.
+    records created by POST /record.
     There is no data recovery path after a downgrade.
     """
     op.drop_table("service_records")

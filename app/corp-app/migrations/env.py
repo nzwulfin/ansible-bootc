@@ -1,7 +1,7 @@
 """
 Alembic migration environment for corp-app.
 
-DATABASE URL SOURCE (G12)
+DATABASE URL SOURCE
 --------------------------
 The database URL is read from /etc/corp-app/config.ini — the same file
 the running corp-app service reads. This guarantees that "alembic upgrade head"
@@ -17,11 +17,9 @@ OFFLINE MODE (alembic upgrade --sql)
   dialect hint, or to a SQLite URL as a last resort (for syntax checking
   only — the generated SQL will target MariaDB syntax regardless).
 
-CORPORATE STACK (G15)
+CORPORATE STACK
 ---------------------
-This env.py uses SQLAlchemy and Alembic — both baked into the application
-runtime image. It is executed inside the /opt/corp-app/venv virtualenv
-(--system-site-packages), so these packages are available without re-installation.
+This env.py uses SQLAlchemy and Alembic.
 """
 
 from __future__ import annotations
@@ -36,7 +34,7 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 
 # ---------------------------------------------------------------------------
-# Config path — must match the application executable (G12)
+# Config path — must match the application executable
 # ---------------------------------------------------------------------------
 _CONFIG_PATH = "/etc/corp-app/config.ini"
 
@@ -107,9 +105,7 @@ def _get_db_url(*, allow_sqlite_fallback: bool) -> str:
         # connection would produce incorrect or destructive results.
         raise RuntimeError(
             f"Cannot run online migrations: {_CONFIG_PATH} not found "
-            "and the DB_URL environment variable is not set.\n"
-            "  Deploy the application config with the app_deploy Ansible role "
-            "before running 'alembic upgrade head'."
+            "and the DB_URL environment variable is not set."
         )
 
     db_host = cfg.get("database", "host")
@@ -159,7 +155,7 @@ def run_migrations_online() -> None:
     Run migrations in 'online' mode.
 
     Establishes a live MariaDB connection and applies pending migrations.
-    Called by "alembic upgrade head" in the app_release Ansible role (§8.4).
+    Called by "alembic upgrade head".
 
     Fails fast (RuntimeError) if /etc/corp-app/config.ini is absent and
     DB_URL is not set — SQLite is never used for live online migrations.
