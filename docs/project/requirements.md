@@ -61,9 +61,8 @@ Layering expresses the ownership model. Each boundary below is a team boundary:
 | Application runtime image and corporate Python standard | Middleware | A reusable corporate Python runtime baseline and the single, centrally governed Python stack every application inherits |
 | Application payload and the two application plays | Application Development | The fixture's code, pinned extras, and migrations; deploy, then release/go-live |
 
-There is no multi-stage Containerfile build: nothing is compiled. A workload image derives
-from the base image with `FROM`, and that line is the team boundary in code. The database
-and application images are workload-team owned.
+Workload images derive from the base image with `FROM`, and that line is the team boundary
+in code. The database and application images are workload-team owned.
 
 The application side has a second boundary inside the runtime layer: **Middleware** owns the
 reusable runtime baseline (the corporate Python stack); **Application Development** owns the
@@ -88,25 +87,30 @@ domains:
 - **Workload standard** → workload layer image, shipped as content.
 - **Instance-specific** → Ansible at runtime.
 
-Domains where the workload does not change the answer — time sync, SELinux posture,
-firewall policy — are base-only, with no workload override.
+Platform-wide or global baseline and management firewall policy — like time sync and SELinux
+posture — is base-only at the platform layer. Workload-specific service access follows the
+workload/instance boundaries: the database image bakes its service port open and runtime
+automation narrows it to the application host, while the application port remains closed
+until the deliberate exposure step (G19).
 
 ## Cross-cutting requirements
 
 These IDs are stable citation targets for requirements that genuinely span components.
 Implementation-local conventions are stated where they apply, without an ID; only
-requirements that genuinely cross components carry one.
+requirements that genuinely cross components carry one. The IDs are intentionally sparse:
+retired identifiers are never reused.
 
 **G1 — Build-time firewall changes use the offline mechanism.** Any image build step that
 manages firewall state uses `firewall-offline-cmd`. The runtime tool (`firewall-cmd`)
 requires a running daemon and is valid only at runtime, never inside a build context.
 
 **G2 — Management identity is pinned and consistent.** The management account has a fixed
-name and a fixed numeric identity that does not drift across image rebuilds. The name and
-numeric values must be identical wherever they are expressed (account declaration, file
-ownership, connection user); divergence makes first-contact key material unreadable or
-writes keys to the wrong home. This demo pins the name `ansible` and UID/GID `5000`; `5000`
-is this demo's chosen value, not a universal requirement.
+name and a fixed numeric identity that do not drift across image rebuilds. The account name
+must be identical wherever it is named (account declaration, SSH/Ansible connection user,
+authorized-key user); the numeric UID/GID must be identical wherever numeric identity is
+expressed (account declaration, file ownership). Divergence makes first-contact key
+material unreadable or writes keys to the wrong home. This demo pins the name `ansible` and
+UID/GID `5000`; `5000` is this demo's chosen value, not a universal requirement.
 
 **G3 — The first-contact key is install-only.** The pre-shared bootstrap key (PSK) lives in
 the account's standard `authorized_keys` location under the image's `/var` tree, present and
@@ -139,16 +143,19 @@ baseline, not an application image.
 `/etc/ssh/sshd_config.d/`. The base `sshd_config` is never modified or replaced directly.
 
 **G9 — No runtime OS package management; scoped Python exception.** No Ansible task installs
-or updates operating-system packages (`dnf`/`yum`/`rpm`/`package`/`dnf-automatic`); OS
-packages are bake-time only. The deliberate exception is application-level Python
-dependencies: Ansible may install them at runtime only into the application virtualenv, only
-with fully pinned versions, and never with `--upgrade`, unbounded specifiers, or into system
+or updates operating-system packages (`dnf`/`yum`/`rpm`/`package`); OS packages are
+bake-time only. Separately, no runtime update daemon is enabled or configured as a
+package-management path. The deliberate exception is application-level Python dependencies:
+Ansible may install them at runtime only into the application virtualenv, only with fully
+pinned versions, and never with `--upgrade`, unbounded specifiers, or into system
 site-packages. The shared corporate Python stack is baked, not installed at runtime.
 
-**G12 — The application runtime config location is a single agreed interface.** One path is
-used identically by the application executable, the Ansible-rendered template, and the
-service process. The current fixture value is `/etc/corp-app/config.ini`. Any divergence
-between two of the three silently breaks the application.
+**G12 — The application runtime config location is a single agreed interface.** The
+application executable and the Alembic migration environment hardcode the expected path,
+`/etc/corp-app/config.ini` in the current fixture, and the Ansible deployment template writes
+to that same path. The systemd unit only launches the executable and does not name the
+config path. If the template and either consumer diverge, the application fails to read its
+database configuration, and the failure is silent or misleading rather than a startup error.
 
 **G14 — Application payloads deploy at runtime to persistent machine-local storage.** No
 image bakes application code. The runtime image must provide a persistent, writable
@@ -160,8 +167,10 @@ fixture deployment value, not a universal rule.
 **G15 — There is one corporate Python standard.** The DB driver set (`python3-PyMySQL`,
 `python3-psycopg2`) and the data-abstraction layer (SQLAlchemy, Alembic, Pydantic) are
 defined once, baked into the application runtime image, and are the single source of truth.
-Ansible roles and the payload must not re-install, shadow, or pin alternate versions; they
-add only genuinely app-specific extras. Exact versions are implementation detail.
+Deployment and automation must not re-install, shadow, or pin alternate versions; they add
+only genuinely app-specific extras. The supplied fixture must remain compatible with this
+stack; that compatibility is an integration condition, not an application-outcome target.
+Exact versions are implementation detail.
 
 **G16 — Runtime Python installs are pinned.** Every runtime Python install performed by
 Ansible specifies an exact pinned version. Floating ranges, `latest`, and `--upgrade` are
@@ -292,18 +301,16 @@ The playbooks must run unchanged under AAP as well as from a plain checkout.
 
 ## Secrets and control-node requirements
 
-- Sensitive values are vault-encrypted alongside their plaintext counterparts for standalone
-  execution; the vault password file is gitignored.
+- Sensitive values must be encrypted with Ansible Vault before standalone use. Non-secret
+  variables may live in plaintext `vars.yml` files; a secret must never have a plaintext
+  duplicate. The vault password file is gitignored. The checked-in `vault.yml` files are
+  plaintext placeholders until the user encrypts them per the README; the repository does
+  not ship encrypted vault files.
 - Private key material and the vault password file are gitignored; only the key-generation
   script is committed.
-- The project is runnable from a plain local checkout: inventory, role paths, vault password
-  file, and collection requirements all live in the repository. All `ansible-playbook`
-  invocations run from the `ansible/` directory, and every path in `ansible.cfg` is relative
-  to it.
-- Required collections are `ansible.mariadb` and `ansible.posix`. The application plays use
-  only `ansible.builtin` and introduce no collection dependency.
-- SSH pipelining is enabled; it is required for correct sudo behaviour with NOPASSWD
-  accounts.
+- The project must be runnable from a plain local checkout: inventory, role paths, the vault
+  password file, and any required collections resolve without editing tracked files.
+  Noninteractive privilege escalation must work for the automation's elevation steps.
 - Host-key checking is relaxed for demo convenience and documented as such; production uses
   `accept-new` or a pre-populated `known_hosts`.
 - A strict corporate posture is a named next step, not a deliverable: scope NOPASSWD sudo,
