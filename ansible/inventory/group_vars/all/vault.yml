@@ -1,23 +1,15 @@
 ---
-# group_vars/all/vault.yml — Vault-encrypted shared credentials.
+# group_vars/all/vault.yml — vault-encrypted shared credentials.
 #
-# THIS FILE MUST BE ENCRYPTED with ansible-vault before use:
-#   cd ansible/
-#   ansible-vault encrypt inventory/group_vars/all/vault.yml
-#
-# To edit an already-encrypted file:
+# Encrypt before use:
+#   cd ansible/ && ansible-vault encrypt inventory/group_vars/all/vault.yml
+# Edit an encrypted file:
 #   ansible-vault edit inventory/group_vars/all/vault.yml
 #
-# Global constraint G4: app_db_password is declared ONLY in this file.
-# It must not appear in any group-specific vault file, any role default,
-# or any plaintext file. Both the mariadb_instance role (which creates the
-# MariaDB account) and the app_deploy / app_release roles (which write config.ini
-# and run Alembic migrations) resolve this variable from this single location.
-#
-# Under AAP: replace this vault file with an AAP custom credential or
-# survey variable. The variable name (app_db_password) must remain identical
-# so that roles work unchanged.
+# app_db_password is declared ONLY here — never in a group-specific vault,
+# role default, or plaintext file. Under AAP, supply it via a custom
+# credential or survey variable, keeping the variable name identical.
 
-# The password for the application's MariaDB account.
-# Replace the placeholder value before encrypting this file.
+# Password for the application's MariaDB account; replace the placeholder
+# before encrypting.
 app_db_password: "REPLACE_ME_WITH_A_STRONG_PASSWORD"

@@ -1,19 +1,8 @@
 ---
-# app_proof_of_life — tasks/main.yml
-#
-# Verifies the application is running and communicating with MariaDB.
-# Runs on the target application host over loopback (127.0.0.1:{{ app_port }}).
-#
-# Task sequence:
-#   1. Health probe                — GET /health, assert 200 + database connected
-#   2. Seed-visibility assertion   — GET /, assert 'ansible-bootstrap' in records
-#   3. Write verification probe    — POST /record, assert 201 + echoed record
-#   4. Negative-path validation    — POST /record with {}, assert 400
-#
-# Non-idempotent probe notice:
-#   Task 3 (write verification) adds one row per playbook run. This is deliberate.
-#   Do NOT attempt to make it idempotent by deleting probe rows. Probe rows are
-#   harmless and document verification history.
+# app_proof_of_life — functional verification on the application host over
+# loopback: health, seed visibility (GET /), write probe (POST /record),
+# negative input. The write probe adds one row per run — deliberate; probe
+# rows are not deleted.
 
 - name: Wait for application health endpoint on loopback
   ansible.builtin.uri:

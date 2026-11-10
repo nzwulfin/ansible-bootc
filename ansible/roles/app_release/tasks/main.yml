@@ -1,28 +1,7 @@
 ---
-# app_release — tasks/main.yml
-#
-# Brings the deployed application payload to life: applies the app-owned schema
-# via Alembic, enables and starts the service, then confirms the service came up
-# with a single loopback readiness gate. No functional exercises, no firewall
-# exposure.
-#
-# Task sequence:
-#   1. Run Alembic migrations (create service_records + idempotent seed)
-#   2. Enable and start corp-app.service (G7: Ansible owns enable/start)
-#   3. Loopback readiness gate — poll /health until 200 (G17, G19)
-#   4. Assert health endpoint reports database == "connected"
-#
-# Constraints honoured:
-#   G4  — app_db_password not declared here; Alembic resolves it via
-#          /etc/corp-app/config.ini (written by app_deploy, G12)
-#   G7  — Ansible enables/starts the unit; the image never did
-#   G9  — no OS package installation
-#   G17 — readiness gate is the ONLY verification permitted in release;
-#          no GET / seed assertions, no POST /record write probes, no
-#          negative-input tests (those are app_proof_of_life)
-#   G19 — no external firewall port opened; readiness gate runs over loopback
-#          so it passes while the service remains externally unreachable
-#          (default-deny teaching moment)
+# app_release — brings the deployment live: Alembic migrations, enable/start,
+# single loopback readiness gate. No functional exercises (proof_of_life) and
+# no firewall exposure (expose_app).
 
 - name: Run database migrations with Alembic
   ansible.builtin.command:
@@ -32,21 +11,7 @@
   changed_when: >-
     'Running upgrade' in alembic_result.stdout or
     'Running upgrade' in alembic_result.stderr
-  # Alembic's version tracking (alembic_version table) makes this idempotent:
-  # when the database is already at head, 'upgrade head' emits no 'Running upgrade'
-  # line and changed_when evaluates to false.
-  #
-  # This task creates the service_records table and inserts the single
-  # 'ansible-bootstrap' seed row. The seed is applied
-  # idempotently by the migration — a re-run does not duplicate the row.
-  #
-  # The app DB account (DDL on its own database) is the credential; Alembic
-  # reads the connection URL from /etc/corp-app/config.ini (G12), ensuring
-  # migrations and the running service always target the identical database.
-  #
-  # chdir sets the working directory so Alembic can locate the versions/
-  # subdirectory relative to alembic.ini (consistent with the migration tree
-  # layout produced by app_deploy).
+  # Alembic's version tracking makes re-runs no-ops; changed_when is false at head.
 
 - name: Enable and start corp-app service
   ansible.builtin.systemd:
@@ -54,15 +19,6 @@
     state: started
     enabled: true
     daemon_reload: true
-  # G7: Ansible owns the enable/start lifecycle. The application image carries
-  # no corp-app.service unit and never enables or starts the service.
-  # app_deploy renders the unit to /etc/systemd/system/corp-app.service
-  # (instance-owned, not baked); this task is the first and only place the
-  # service is brought to life.
-  #
-  # daemon_reload: true ensures systemd picks up the unit file rendered by
-  # app_deploy even if this play runs in a fresh session after app_deploy.
-  # It is a no-op if the unit file has not changed since the last reload.
 
 - name: Wait for loopback health endpoint to respond
   ansible.builtin.uri:
@@ -74,19 +30,8 @@
   until: app_health.status | default(0) == 200
   retries: "{{ app_health_retries }}"
   delay: "{{ app_health_delay }}"
-  # G17: This loopback poll is the ONLY verification permitted in the release
-  # role — a liveness confirmation that the service came up, not a functional
-  # test. All functional verification (GET / seed assertions, POST /record write
-  # probes, negative-input checks) lives exclusively in app_proof_of_life.
-  #
-  # G19: The URI targets 127.0.0.1 (loopback on the app host), not the external
-  # IP. The service binds 0.0.0.0 but the external firewall port is NOT opened
-  # by this role — the check succeeds while the service remains externally
-  # unreachable. This is the expected, documented post-release state (default-deny
-  # posture); external exposure is a deliberate, separately-labelled step in
-  # expose_app.yml.
-  #
-  # app_port is declared in group_vars/application/vars.yml, not as a role default.
+  # Loopback only: the gate passes while the external port is still closed;
+  # network exposure is expose_app.yml.
 
 - name: Assert health endpoint reports database connected
   ansible.builtin.assert:
@@ -99,15 +44,5 @@
       Check corp-app.service logs: journalctl -u corp-app --no-pager -n 50
     success_msg: >-
       Service is healthy: HTTP 200, database connected.
-  # Confirms that the service is not only reachable (Task 3) but has successfully
-  # established a database connection — the minimum bar for declaring the release
-  # successful. A 200 response with database != "connected" would indicate a
-  # partially-degraded start (e.g., DB connection pool issue) that should fail
-  # the release rather than pass it silently.
-  #
-  # This is NOT a functional test: no data is read, no writes are performed,
-  # and no seed content is asserted (G17). The proof-of-life role asserts seed
-  # visibility and exercises the full read/write path over loopback on the
-  # application host. The application's own connection to the remote MariaDB
-  # still crosses the network; that is separate from external exposure of the
-  # application port.
+  # A 200 with database != connected is a degraded start and must fail the
+  # release rather than pass silently.

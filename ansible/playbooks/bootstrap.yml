@@ -1,52 +1,26 @@
 ---
-# ansible/playbooks/bootstrap.yml
+# bootstrap.yml — onboarding: PSK probe -> key rotation -> live-key verification.
 #
-# PSK probe -> key rotation -> live key verification: the single discrete
-# onboarding unit.
+# The three-play structure is normative: plays 1-2 override
+# ansible_ssh_private_key_file to the bootstrap (PSK) key; play 3 falls back to
+# the ansible.cfg default (live key) and fails loudly if any host is
+# unreachable — the post-rotation check.
 #
-#   Play 1  Probe every host with the bootstrap (PSK) key.
-#   Play 2  On explicit probe success, install the live key and remove
-#           the PSK (bootstrap_key_rotation role).
-#   Play 3  Verify every host is reachable via the live key.
+# Idempotent onboarding: against an already-onboarded host the PSK probe cannot
+# authenticate, rotation is skipped, and play 3 confirms the live key.
 #
-# The three-play structure is normative: probe and rotation are never
-# combined into a single play, and the credential switch sits at the play
-# boundary — Plays 1-2 override ansible_ssh_private_key_file to the
-# bootstrap key; Play 3 falls back to the ansible.cfg default (live key).
-#
-# Standalone usage (run from the ansible/ directory):
-#   ansible-playbook playbooks/bootstrap.yml
-#
-# AAP usage:
-#   Run as its own job template with the bootstrap machine credential.
-#   Play 3 connects with the live key; under AAP (exactly one machine
-#   credential per job) the verification is moved to the start of the
-#   workload job template (live credential) or implied by the workload
-#   job's own connectivity. No playbook change is required.
-#
-# Re-run behaviour (idempotent onboarding): against an already-onboarded
-# host, Play 1 fails to authenticate (the PSK was removed at first
-# contact), Play 2 skips the rotation, and Play 3 confirms the live key
-# still works. authorized_keys is left unchanged.
-#
-# Constraints honoured:
-#   G2  — rotation targets the management account by name (ansible); the
-#         authorized_key module never sees a UID.
-#   G3  — the PSK is removed from the standard authorized_keys path only;
-#         nothing in this playbook can recreate the PSK entry.
+# AAP: run as its own job template with the bootstrap machine credential. Under
+# AAP's one-credential-per-job rule, skip play 3 with --skip-tags live_key_verify;
+# live-key verification is implied by the workload job's first connection.
 
 - name: Probe hosts with the bootstrap (PSK) key
   hosts: all
   gather_facts: false
   ignore_unreachable: true
   vars:
-    # PSK override for the onboarding plays. ansible.cfg defaults to the
-    # live key (keys/id_live); the bootstrap phase explicitly uses the
-    # bootstrap private key. The fallback resolves relative to
-    # playbook_dir (the playbooks/ directory), so the path is stable
-    # whether the playbook runs from ansible/ or is imported by
-    # site.yml; bootstrap_key_path (role default or extra var)
-    # overrides the fallback when provided.
+    # ansible.cfg defaults to the live key; the bootstrap phase explicitly uses
+    # the bootstrap private key. The fallback resolves relative to playbook_dir;
+    # bootstrap_key_path (role default or extra var) overrides it when provided.
     ansible_ssh_private_key_file: "{{ bootstrap_key_path | default(playbook_dir ~ '/../keys/id_bootstrap') }}"
   tasks:
     - name: Ping over the PSK
@@ -56,41 +30,31 @@
       ansible.builtin.set_fact:
         psk_reachable: true
       when: bp is not failed and (bp is not unreachable)
-      # psk_reachable persists across plays in this run. Hosts whose
-      # probe failed or that were unreachable never get the fact set.
 
 - name: Rotate PSK to live key on successfully probed hosts
   hosts: all
   gather_facts: false
   ignore_unreachable: true
   vars:
-    # Same PSK override as Play 1: rotation still authenticates with the
-    # bootstrap key — the live key is installed by the role's first task.
+    # Rotation still authenticates with the bootstrap key; the role's first
+    # task installs the live key.
     ansible_ssh_private_key_file: "{{ bootstrap_key_path | default(playbook_dir ~ '/../keys/id_bootstrap') }}"
   tasks:
     - name: Install the live management key and remove the PSK
       ansible.builtin.include_role:
         name: bootstrap_key_rotation
-      # Explicit success guard: only a host whose PSK probe explicitly
-      # succeeded in Play 1 is rotated. A probe failure (onboarded host —
-      # the PSK is already gone, so authentication fails) must never
-      # drive rotation; the probe outcome is the unambiguous
-      # discriminator.
+      # Only a host whose PSK probe explicitly succeeded is rotated. On an
+      # onboarded host the PSK is gone, so the probe fails and must never
+      # drive rotation.
       when: psk_reachable | default(false)
 
 - name: Verify live key access on all hosts
   hosts: all
   gather_facts: false
-  # AAP tag: under AAP's one-credential-per-job rule, the bootstrap job template
-  # runs with the bootstrap credential and skips this play via `--skip-tags live_key_verify`.
-  # Live-key verification is then performed by the workload job's first connection.
-  # Standalone runs (ansible-playbook bootstrap.yml) run all plays unconditionally.
+  # No key override: the ansible.cfg default (live key) applies. No
+  # ignore_unreachable: this play fails loudly if a host is unreachable.
   tags:
     - live_key_verify
-  # No ansible_ssh_private_key_file override: the ansible.cfg default
-  # (keys/id_live) applies to this play. No ignore_unreachable either —
-  # this play fails loudly if any host is unreachable via the live key,
-  # which is the post-rotation check.
   tasks:
     - name: Ping over the live key
       ansible.builtin.ping:

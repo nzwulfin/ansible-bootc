@@ -1,22 +1,13 @@
 ---
-# app_release — meta/main.yml
-#
-# Role metadata for dependency declaration and Galaxy publication details.
+# app_release — role metadata.
 
 galaxy_info:
   role_name: app_release
   author: ansible-bootc
   description: >
-    Brings the deployed corporate application payload to life: applies the
-    app-owned database schema via Alembic (creating service_records and the
-    idempotent 'ansible-bootstrap' seed), enables and starts
-    corp-app.service (G7 — Ansible owns the enable/start lifecycle, the image
-    never does), and confirms the service is healthy via a single loopback
-    readiness gate (http://127.0.0.1:{{ app_port }}/health, G17). Does NOT
-    perform functional application exercises (those are app_proof_of_life,
-    G17) and does NOT open any external firewall port (G19 — deliberate
-    default-deny teaching moment: the service works on loopback yet remains
-    externally unreachable until a human explicitly exposes it).
+    Runs Alembic migrations, enables and starts corp-app, and gates on a
+    loopback readiness check; does not open external ports (expose_app) or
+    run functional exercises (app_proof_of_life).
   license: Apache-2.0
   min_ansible_version: "2.14"
 
@@ -26,9 +17,4 @@ galaxy_info:
         - "9"
         - "10"
 
-dependencies:
-  # No role-level collection dependencies. All modules used by this role
-  # (ansible.builtin.command, ansible.builtin.systemd, ansible.builtin.uri,
-  # ansible.builtin.assert) are in ansible.builtin and require no additional
-  # collection installation.
-  []
+dependencies: []

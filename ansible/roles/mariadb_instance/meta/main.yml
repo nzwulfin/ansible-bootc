@@ -1,20 +1,15 @@
 ---
-# mariadb_instance — meta/main.yml
-#
-# Role metadata for dependency declaration and Galaxy publication details.
+# mariadb_instance — role metadata.
 
 galaxy_info:
   role_name: mariadb_instance
   author: ansible-bootc
   description: >
-    DB foundation (DBA-owned): creates the application database, the application
-    account with privileges scoped to its own database (DML + DDL for Alembic
-    migrations), and narrows the firewall from the image-baked broad mysql
-    service to a source-restricted rich rule allowing only the application host.
-    No schema creation and no seed data — those are app-team territory, applied
-    by the app's Alembic migrations during app_release (app_release.yml).
-    Assumes MariaDB is already installed and enabled via the database bootc image;
-    root access is via the local unix socket (no root password set).
+    DB foundation (DBA-owned): creates the application database, the
+    application account scoped to its own database, and narrows the firewall
+    to the application host. No schema or seed data — the app's Alembic
+    migrations own those (app_release). Assumes MariaDB is installed and
+    enabled via the database image; root access via the local unix socket.
   license: Apache-2.0
   min_ansible_version: "2.14"
 
@@ -24,8 +19,4 @@ galaxy_info:
         - "9"
         - "10"
 
-dependencies:
-  # No role-level dependencies. The collections ansible.mariadb and
-  # ansible.posix are declared in ansible/requirements.yml and must be
-  # installed before this role is used.
-  []
+dependencies: []

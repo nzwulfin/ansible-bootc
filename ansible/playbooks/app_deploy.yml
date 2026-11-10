@@ -1,36 +1,11 @@
 ---
-# ansible/playbooks/app_deploy.yml
+# app_deploy.yml — Application Development, play 1 of 2: installs the payload,
+# virtualenv, instance config, and systemd unit.
 #
-# Deploys the application payload onto the corporate Python runtime baseline.
-# Application Development ownership — play 1 of 2 (deploy, not go-live).
-#
-# Standalone usage (run from the ansible/ directory):
-#   ansible-playbook playbooks/app_deploy.yml
-#
-# AAP usage:
-#   Part of the workload job template (live machine credential), run after
-#   database.yml has completed. Under AAP, vault variables (app_db_password)
-#   are supplied via a custom credential or survey variable; variable names
-#   are identical to what the role references, so no playbook changes are needed.
-#
-# Scope — this playbook installs and renders:
-#   - Application payload to /opt/corp-app (src/, migrations/, requirements.txt)
-#   - Virtualenv at /opt/corp-app/venv with system site-packages (G14, G15)
-#   - App-specific pinned extras from requirements.txt into the venv (G9, G16)
-#   - /etc/corp-app/config.ini  (G12 — fixed path agreed with the executable)
-#   - /etc/systemd/system/corp-app.service  (instance-owned, not baked — G7)
-#
-# This playbook does NOT:
-#   - Enable or start corp-app.service (that is app_release.yml, G17)
-#   - Run Alembic migrations (that is app_release.yml, G17)
-#   - Open any firewall port (G19)
-#
-# Teaching moment (G19): after this playbook the service unit exists but is
-# inactive and the external port is closed. The service becomes reachable on
-# loopback only after app_release.yml enables and starts it, and reachable
-# from the network only after the explicit firewall-exposure step in
-# expose_app.yml (default-deny posture: loopback reachability ≠ network
-# reachability until a human deliberately exposes the port).
+# The service is NOT enabled or started here and no firewall port is opened —
+# that is app_release.yml and expose_app.yml.
+# Vault variables (app_db_password) come from group_vars or AAP credentials;
+# variable names are identical either way.
 
 - name: Deploy application payload and configuration
   hosts: application
