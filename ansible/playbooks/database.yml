@@ -1,31 +1,10 @@
 ---
-# ansible/playbooks/database.yml
+# database.yml — DBA-owned MariaDB foundation: creates the application database,
+# the application account (host-restricted), and narrows the image-baked broad
+# mysql firewall service to a source-restricted rule.
 #
-# DBA-owned: DB foundation only — creates the application database, the
-# application account with host-restricted privileges, and narrows the firewall
-# from the image-baked broad mysql service to a source-restricted rich rule.
-#
-# SCOPE: Foundation only. This playbook applies NO schema (CREATE TABLE) and NO
-# seed data (INSERT INTO). Schema and seed are app-team territory, owned by the
-# app's Alembic migrations and applied by app_release.yml. See also:
-#   app/corp-app/migrations/    ← authoritative schema definition
-#
-# Standalone usage (run from the ansible/ directory):
-#   ansible-playbook playbooks/database.yml
-#
-# AAP usage:
-#   Run as a separate job template with the live machine credential, after
-#   bootstrap.yml has completed successfully. The live key (configured as
-#   the default in ansible.cfg) is the correct credential for this phase.
-#   Under AAP, vault variables (app_db_password) are supplied via a custom
-#   credential or survey variable; variable names remain identical so no
-#   playbook changes are required.
-#
-# Constraints honoured:
-#   G9  — no package management tasks; all runtime dependencies are baked
-#         into the database image.
-#   G17 — deployment plays do not create schema or seed data; those are
-#         applied by the app team in app_release.yml.
+# Schema and seed data are NOT created here — the app's Alembic migrations own
+# them (applied by app_release.yml). Run with the live machine credential.
 
 - name: Provision MariaDB instance (DB foundation)
   hosts: database

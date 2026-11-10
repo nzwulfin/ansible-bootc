@@ -1,21 +1,13 @@
 ---
-# app_proof_of_life — meta/main.yml
-#
-# Role metadata for dependency declaration and Galaxy publication details.
+# app_proof_of_life — role metadata.
 
 galaxy_info:
   role_name: app_proof_of_life
   author: ansible-bootc
   description: >
-    Optional functional verification role that exercises the corporate application
-    on the host over loopback (G17). Asserts: GET /health returns 200 with
-    database='connected'; the Alembic migration seed ('ansible-bootstrap') is
-    visible in GET / records; POST /record succeeds with 201 and the echoed
-    record; a malformed POST /record body is rejected with 400.
-
-    This role is invoked by proof_of_life.yml (never by site.yml, never a
-    deployment prerequisite). Each run adds one harmless write-probe row
-    (documented non-idempotent behaviour).
+    Optional functional verification over loopback: health, seed visibility,
+    write probe (one harmless row per run), and negative-input check. Invoked
+    by proof_of_life.yml, never by site.yml.
   license: Apache-2.0
   min_ansible_version: "2.14"
 
@@ -25,10 +17,4 @@ galaxy_info:
         - "9"
         - "10"
 
-dependencies:
-  # No role-level collection dependencies. All modules used by this role
-  # (ansible.builtin.uri, ansible.builtin.assert) are in ansible.builtin and
-  # require no additional collection installation beyond what the project
-  # requirements.yml already declares (ansible.posix, used by the firewall-exposure
-  # play in expose_app.yml).
-  []
+dependencies: []

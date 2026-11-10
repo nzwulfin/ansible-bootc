@@ -1,63 +1,19 @@
 ---
-# app_release role defaults
-#
-# Overridable operational knobs for the go-live phase of the corporate application
-# deployment.
-#
-# This role is the second app-team play:
-#   app_deploy — deploys payload, venv, config, unit; does NOT start
-#   app_release — migrates schema, enables/starts service, readiness gate
-#
-# Variable precedence reminder:
-#   group_vars > role defaults. For hosts in the 'application' group,
-#   group_vars/application/vars.yml values (app_port, etc.) take precedence.
-#
-# Must NOT declare (role defaults contract):
-#   - app_db_password (G4: declared ONLY in all/vault.yml)
-#   - app_port     (instance var — group_vars/application/vars.yml)
-#   - app_db_name  (shared var  — group_vars/all/vars.yml)
-#   - app_db_user  (shared var  — group_vars/all/vars.yml)
-#   - db_host      (instance var — group_vars/application/vars.yml)
-#   - The seed message 'ansible-bootstrap' is a fixed interface value shared
-#     between the Alembic migration, this role, and the proof-of-life
-#     assertion. It must NOT be made an overridable knob.
+# app_release role defaults. group_vars/application/vars.yml overrides these
+# for the 'application' group. Credentials and instance values are deliberately
+# not declared here.
 
-# Payload install root.
-# On bootc, /opt resolves under /var/opt (persistent, Ansible-owned, preserved
-# across bootc upgrade/rollback). No application code is baked into the image
-# (G7, G14).
 app_root: "/opt/corp-app"
-
-# Virtualenv path inside the payload root.
-# The venv was created with --system-site-packages by app_deploy (G14, G15),
-# making the baked corporate Python stack (SQLAlchemy, Alembic, Pydantic, DB
-# drivers) visible without re-installation. This role invokes the Alembic binary
-# from this venv.
 app_venv: "{{ app_root }}/venv"
-
-# Name of the systemd service unit (without the .service suffix).
-# Must match the unit filename deployed by app_deploy to
-# /etc/systemd/system/corp-app.service.
 app_service_name: "corp-app"
 
-# Command used to invoke Alembic inside the venv.
-# Using the venv's Python interpreter with `-m alembic` is the standard pattern:
-# virtualenvs created with --system-site-packages inherit Python modules from the image
-# but do not copy third-party CLI wrapper scripts into the venv bin directory.
+# `python3 -m alembic` because --system-site-packages venvs do not copy CLI
+# wrapper scripts into the venv bin directory.
 alembic_bin: "{{ app_venv }}/bin/python3 -m alembic"
 
-# Path to the Alembic configuration file (alembic.ini) inside the migration tree.
-# The migration tree is deployed to app_root/migrations/ by app_deploy.
-# The Alembic config reads the DB connection from /etc/corp-app/config.ini so that
-# migrations and the running service target the identical database.
+# Alembic reads the DB connection from /etc/corp-app/config.ini, so migrations
+# and the running service target the same database.
 alembic_config: "{{ app_root }}/migrations/alembic.ini"
 
-# Readiness gate retry count.
-# The loopback health check (/health) is retried this many times before failing.
-# 30 retries × 5-second delay = up to 150 seconds for the service to become healthy.
-# Increase for slower environments or large initial migrations.
-app_health_retries: 30
-
-# Readiness gate retry delay in seconds.
-# Time to wait between each /health poll attempt.
+app_health_retries: 30   # 30 x 5 s = up to 150 s for service startup
 app_health_delay: 5

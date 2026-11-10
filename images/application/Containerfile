@@ -1,103 +1,19 @@
-# Application runtime image — reusable corporate Python runtime baseline.
-#
-# This image is the SINGLE SOURCE OF TRUTH for the corporate Python stack (G15).
-# It is a RUNTIME BASELINE owned by Middleware:
-#
-#   - Bakes NO application code, executable, or migration scripts (G7, G14)
-#   - Carries NO systemd unit for any workload (G7)
-#   - Opens NO firewall port — port exposure is an instance decision made at
-#     runtime by a human operator, deliberately separated as a teaching moment
-#     about default-deny posture (G19)
-#
-# Application Development teams build ON this image via Ansible (app_deploy + app_release
-# roles). They install app-specific extras into /opt/corp-app/venv and render
-# /etc/systemd/system/corp-app.service at release time — nothing is baked here.
-#
-# The absence of a rootfs/ directory is BY DESIGN: there is no filesystem
-# content to bake beyond what dnf and pip provide. (G7, G14)
+# Application runtime image — the single corporate Python baseline. Application
+# teams build on this image via Ansible (app_deploy + app_release). It bakes no
+# application code or executable, carries no systemd unit, and opens no firewall
+# port. There is no rootfs/ directory by design: nothing beyond dnf and pip
+# content belongs here.
 #
 # BUILD ORDER:
-#   scripts/generate-demo-keys.sh          # generate PSK and live keys
+#   scripts/generate-demo-keys.sh
 #   podman build -t corp-base:latest images/base/
 #   podman build -t corp-app:latest images/application/
-#
-# Corporate Python standard baked here (G15 — single source of truth):
-#   Tier 1  Core runtime:          python3, python3-pip, python3-virtualenv,
-#                                  ca-certificates, tzdata
-#   Tier 2  Helpers & packaging:   git, tar, gzip, unzip, python3-setuptools,
-#                                  python3-wheel
-#   Tier 3  Corporate DB drivers + data-abstraction layer (corporate standard,
-#           not universally required by every Python app — see comments below):
-#             DB drivers:          python3-PyMySQL, python3-psycopg2
-#             Abstraction layer:   SQLAlchemy, Alembic, Pydantic
-#                                  (pinned via build-time pip from
-#                                   images/application/requirements-corporate.txt)
 
 FROM corp-base:latest
 
-# ─── Step 1: Install the RPM portion of the corporate Python bundle ───────────
-#
-# All RPMs are installed and the cache is cleaned in a single layer to keep
-# the image lean (G9: bake-time only; no Ansible task may install OS packages
-# at runtime).
-#
-# ── Tier 1: Core runtime ──────────────────────────────────────────────────────
-#
-#   python3            The Python interpreter. Present in the base image;
-#                      listed explicitly so the corporate runtime set is
-#                      self-documenting and the full stack is visible in one
-#                      place (G15). Also provides the standard library `venv`
-#                      module (`python3 -m venv`).
-#   python3-pip        pip: required for build-time pip installs (Tier 3 below)
-#                      and for Ansible's app_deploy role to install app-specific
-#                      extras into the virtualenv (G9 exception scope).
-#   (virtualenv, wheel) On CentOS Stream 10, virtualenv and wheel are not
-#                      distributed as standalone BaseOS/AppStream RPMs; they
-#                      are installed in Step 2 via requirements-corporate.txt.
-#   ca-certificates    TLS trust anchors; required for encrypted database
-#                      connections and any HTTPS traffic from the application.
-#   tzdata             Timezone data; required for correct timestamp handling
-#                      in SQLAlchemy's TIMESTAMP columns and the application's
-#                      datetime serialization.
-#
-# ── Tier 2: Helpers & packaging tooling ──────────────────────────────────────
-#
-#   git                Source control client; used by Ansible tasks that
-#                      deliver the payload from a git repository, and by pip
-#                      when installing editable or VCS-pinned packages.
-#   tar                Tape archive; required for payload delivery via
-#                      ansible.builtin.unarchive and pip source distributions.
-#   gzip               Compression; required alongside tar for .tar.gz payload
-#                      archives and pip source distributions.
-#   unzip              ZIP archive handler; required for pip wheel archives and
-#                      ZIP-format payload delivery.
-#   python3-setuptools setuptools build backend; required when building or
-#                      installing packages from source distributions.
-#
-# ── Tier 3: Corporate DB drivers (RPM-packaged portion) ──────────────────────
-#
-# NOTE: This tier is a CORPORATE STANDARD, not a universal Python baseline.
-#       Every application host carries these packages so that database
-#       connectivity is governed centrally (G15). App teams inherit this
-#       stack; they must NOT re-install, shadow, or pin alternate versions
-#       of any package in this tier (G15, G16).
-#
-#   python3-PyMySQL    Pure-Python MariaDB/MySQL driver. Required by:
-#                        - the ansible.mariadb collection modules (used at
-#                          runtime by the mariadb_instance role on the DB host),
-#                        - the application's SQLAlchemy pymysql:// dialect.
-#   python3-psycopg2   PostgreSQL driver (C extension). Baked alongside
-#                      PyMySQL to signal a SINGLE corporate runtime that
-#                      standardises enterprise DB connectivity centrally
-#                      rather than per-app — both drivers are intentional
-#                      even when only one database engine is used in a given
-#                      deployment.
-#
-#   SQLAlchemy, Alembic, and Pydantic are NOT installed here as RPMs.
-#   On CentOS Stream 10 they are not packaged at the pinned corporate-
-#   standard versions. They are installed in Step 2 via build-time pip from
-#   the committed requirement set (images/application/requirements-corporate.txt).
-#
+# Corporate Python stack (RPM portion), installed and cleaned in a single layer.
+# Downstream consumers must not re-install or re-pin any of it; app teams install
+# only their own pinned extras into the app venv (see the app_deploy role).
 RUN dnf install -y --nodocs \
         python3 \
         python3-pip \
@@ -112,30 +28,14 @@ RUN dnf install -y --nodocs \
         python3-psycopg2 \
     && dnf clean all
 
-# ─── Step 2: Install the data-abstraction layer via build-time pip ────────────
-#
-# SQLAlchemy, Alembic, and Pydantic complete the corporate Tier 3 standard.
-# They are installed at IMAGE BUILD TIME into system site-packages via pip —
-# this is a bake action, NOT a runtime action, so it is permitted (G9 covers
-# runtime package management; bake-time pip installs are outside that scope).
-#
-# Exact pinned versions are the corporate standard (G16). App venvs created
-# with --system-site-packages (G14) inherit these without re-installation (G15).
-# Downstream consumers (app_deploy, app_release roles, app payload) MUST NOT
-# re-install or pin alternate versions of these packages (G15).
-#
-# The pinned requirement set is committed at:
-#   images/application/requirements-corporate.txt
-#
+# Data-abstraction layer: SQLAlchemy, Alembic, and Pydantic are not RPM-packaged
+# at the corporate-pinned versions, so they are installed at build time from the
+# committed requirement set.
 COPY requirements-corporate.txt /tmp/requirements-corporate.txt
 RUN pip3 install --no-cache-dir \
         --requirement /tmp/requirements-corporate.txt \
     && rm /tmp/requirements-corporate.txt
 
-# ─── Step 3: Application host directory in /var exposed via /opt ──────────────
-#
-# On bootc, the root filesystem (/) is mounted read-only while /var is persistent
-# and writable. Rather than modifying the system /opt directory, symlink just the
-# specific application subdirectory into /var/opt (the recommended bootc pattern)
-# so that Ansible can deploy the payload to /opt/corp-app on persistent storage.
+# bootc mounts / read-only with /var persistent: symlink /opt/corp-app into
+# /var/opt so Ansible can deploy the payload to persistent storage.
 RUN mkdir -p /var/opt/corp-app && ln -s /var/opt/corp-app /opt/corp-app

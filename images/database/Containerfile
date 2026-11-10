@@ -1,44 +1,13 @@
-# Database workload image — derives from the corporate base image.
-# Adds MariaDB server, the Python DB client library, the corporate
-# MariaDB baseline config, resource-limit drop-in, and a database-
-# oriented tuned profile.  Enables mariadb on first boot so the
-# service self-initialises with the corporate config already in place.
-#
-# G1: firewall-offline-cmd only (daemon not running at build time).
-# G5: mariadb.service drop-in under usr/lib — image-owned, always wins.
-# G6: tuned profile under usr/lib/tuned/corp-database — image-owned.
-# G9: all runtime deps baked here; Ansible installs nothing at the OS level.
-# G18: operator tooling tiers enforced — see package-set comment below.
+# Database workload image — derives from the corporate base image. Adds MariaDB
+# server and client, the Python DB driver used by the ansible.mariadb modules,
+# the corporate MariaDB baseline config, resource-limit drop-in, and database
+# tuned profile. mariadb is enabled so the service self-initialises on first
+# boot with the corporate config already in place.
 
 FROM corp-base:latest
 
-# ── Package layer ──────────────────────────────────────────────────────────────
-# Core database engine and client:
-#   mariadb-server   : the MariaDB database engine; the primary workload
-#   mariadb          : client CLI utilities for local administrative access
-#                      (root socket access, ad-hoc queries, manual break-glass)
-#   python3-PyMySQL  : required by ansible.mariadb Ansible modules (mariadb_db,
-#                      mariadb_user) *and* by any local DB client work; Ansible
-#                      must not install OS packages at runtime (G9)
-#
-# DBA operator toolset (baked because they are frequently needed and
-# host-coupled — G18; Ansible must not install OS packages at runtime — G9):
-#   mariadb-backup   : hot physical backups (Mariabackup); routine DBA operation
-#   lsof             : inspect open files/sockets; diagnose connection leaks
-#   strace           : system-call tracing for crash/hang post-mortem analysis
-#   procps-ng        : ps, top, vmstat, free — essential process/memory snapshot
-#   sysstat          : iostat, sar, mpstat — I/O and CPU performance history
-#   jq               : parse and filter JSON output from tooling and APIs
-#
-# ── Tooling-tier policy (G18) — deliberate exclusions ─────────────────────────
-# tcpdump and other episodic/high-privilege diagnostics are NOT baked into this
-# image.  Per corporate policy (G18) they are break-glass tooling: a DBA or
-# operator performs a transient manual "dnf install tcpdump" during an active
-# incident, documents the action, and the install is non-durable (container/VM
-# is immutable; next boot/replacement reverts).  Baking them would silently
-# broaden the image's attack surface for capabilities rarely exercised.
-# No Ansible task may perform a break-glass install — that is a manual incident
-# action by design (G9 and G18 together).
+# Engine, client, and DBA operator toolset — baked because they are host-coupled
+# and frequently needed; Ansible must not install OS packages at runtime.
 RUN dnf install -y \
         mariadb-server \
         mariadb \
@@ -51,27 +20,19 @@ RUN dnf install -y \
         jq \
     && dnf clean all
 
-# ── Config, drop-in, and tuned profile ────────────────────────────────────────
-# Copies in one step:
-#   etc/my.cnf.d/00-corporate.cnf                     ← MariaDB baseline
-#   usr/lib/systemd/system/mariadb.service.d/          ← resource-limit drop-in (G5)
-#   usr/lib/tuned/corp-database/tuned.conf             ← DB tuned profile (G6)
+# Episodic diagnostics (tcpdump and similar) are deliberately NOT baked: they
+# are manual break-glass installs during an active incident, and baking them
+# would broaden the attack surface for rarely exercised capabilities.
+
+# Corporate MariaDB config, systemd resource-limit drop-in, tuned profile.
 COPY rootfs/ /
 
-# ── Enable mariadb ────────────────────────────────────────────────────────────
-# The service must self-initialise on first boot with the corporate config
-# already in place.  tuned and firewalld are inherited from the base image.
 RUN systemctl enable mariadb
 
-# ── Firewall: open MySQL service at bake time (G1) ────────────────────────────
-# Broad open is the bake-time posture — any test environment can reach the DB.
-# The mariadb_instance Ansible role narrows this to the application host IP at
-# runtime (replaces this service rule with a source-restricted rich rule).
+# Broad mysql service is the bake-time posture; the mariadb_instance role
+# narrows it to the application host IP at instance provisioning.
 RUN firewall-offline-cmd --add-service=mysql
 
-# ── Tuned profile activation ──────────────────────────────────────────────────
-# Write the active profile selection into /etc/tuned/ (machine-local config).
-# The directory name corp-database must exactly match what is written here (G6).
-# Direct file writes are used because tuned-adm requires a running daemon.
+# Profile name must match the baked /usr/lib/tuned/corp-database profile.
 RUN echo 'corp-database' > /etc/tuned/active_profile \
     && echo 'manual' > /etc/tuned/profile_mode

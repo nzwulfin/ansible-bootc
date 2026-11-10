@@ -1,63 +1,13 @@
 ---
-# ansible/playbooks/app_release.yml
+# app_release.yml — Application Development, play 2 of 2 (go-live): runs the
+# app's Alembic migrations, enables and starts corp-app, and gates on a single
+# loopback /health readiness check.
 #
-# Releases the application to a live, running state.
-# Application Development ownership — play 2 of 2 (go-live, after app_deploy.yml).
-#
-# Standalone usage (run from the ansible/ directory):
-#   ansible-playbook playbooks/app_release.yml
-#
-# AAP usage:
-#   Part of the workload job template (live machine credential), run after
-#   app_deploy.yml. Under AAP, vault variables (app_db_password) are supplied
-#   via a custom credential or survey variable; variable names are identical to
-#   what the role references, so no playbook changes are needed.
-#
-# Scope — this playbook:
-#   1. Runs the app-owned Alembic migrations (creates service_records table and
-#      the idempotent 'ansible-bootstrap' seed row).
-#   2. Enables and starts corp-app.service (G7: Ansible owns enable/start;
-#      the image never did).
-#   3. Polls http://127.0.0.1:{{ app_port }}/health over loopback until the
-#      service reports HTTP 200 and database == "connected" (readiness gate).
-#
-# ─────────────────────────────────────────────────────────────────────────────
-# Teaching moment — External firewall exposure is deliberately ABSENT (G19)
-# ─────────────────────────────────────────────────────────────────────────────
-# This playbook does NOT open the application's external firewall port.
-# The service binds 0.0.0.0, and the loopback readiness gate above passes
-# because it connects to 127.0.0.1 — on the app host itself, bypassing the
-# firewall entirely. The service is therefore:
-#
-#   REACHABLE   on loopback (127.0.0.1) from within the app host
-#   UNREACHABLE from the network (default-deny firewall posture)
-#
-# This gap is intentional and is the expected post-release state. It makes
-# three lessons concrete:
-#   (a) Default-deny: services are not exposed unless a human deliberately
-#       opens the port. A working service on loopback is not a network service.
-#   (b) Loopback ≠ network: passing a loopback health check does not mean the
-#       service is reachable by anyone outside the host.
-#   (c) Runtime firewall ownership: the firewall is managed deliberately, not
-#       as a side-effect of deployment.
-#
-# Opening the external port is its own clearly-labelled, user-invoked step:
-# expose_app.yml. See the docs for the full teaching arc and the post-release
-# verification workflow.
-#
-# ─────────────────────────────────────────────────────────────────────────────
-# Proof-of-life is a separate, user-invoked exercise (G17)
-# ─────────────────────────────────────────────────────────────────────────────
-# This playbook does NOT perform functional application verification:
-#   - No GET / seed-visibility assertions
-#   - No POST /record write probes
-#   - No negative-input (400) tests
-#
-# Those exercises live exclusively in proof_of_life.yml, which a user runs
-# by hand to demonstrate the system over loopback.
-# Proof-of-life is NOT imported by site.yml and is NOT a deployment prerequisite.
-# Mixing functional tests into a deployment play would make deployment
-# non-idempotent and obscure the deploy/test boundary.
+# The external firewall port is deliberately NOT opened: the readiness gate runs
+# on 127.0.0.1, so the service is loopback-reachable but network-unreachable
+# until expose_app.yml is run (default-deny posture). Functional verification
+# (seed visibility, write probe, negative input) is proof_of_life.yml, run by
+# hand — never part of deployment. See docs/application-design.md.
 
 - name: Release application (run migrations, enable service, verify loopback readiness)
   hosts: application

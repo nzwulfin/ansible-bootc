@@ -1,50 +1,19 @@
 ---
-# mariadb_instance role defaults
-#
-# These are overridable operational knobs. Credentials and instance-specific
-# values (app_db_name, app_db_user, app_host_address, app_db_password) are
-# intentionally absent here — they are resolved from group_vars/all/ and
-# group_vars/database/ and must never be shadowed by a role default.
-#
-# Table names and seed messages are also absent: this role is DB foundation
-# only (database + account + firewall narrowing). Schema and seed data are
-# app-team territory, owned by Alembic migrations (app/corp-app/migrations/).
-#
-# Constraints honoured:
-#   G4  — app_db_password declared only in all/vault.yml; not here.
-#   G9  — no package installation; all dependencies baked in the database image.
-#   G17 — no mariadb_table_name or mariadb_seed_message; schema/seed not here.
+# mariadb_instance role defaults. Credentials and instance-specific values
+# (app_db_name, app_db_user, app_host_address, app_db_password) are resolved
+# from group_vars and must never be shadowed here. Schema/seed knobs are
+# absent: this role is DB foundation only.
 
-# Naming note: MariaDB is a drop-in MySQL replacement, so upstream defaults keep
-# MySQL-compatible names: datadir /var/lib/mysql, socket mysql.sock, firewalld
-# service mysql, and config section [mysqld]. Only names this project controls —
-# the role, and the ansible.mariadb collection in requirements.yml — say MariaDB;
-# the MySQL-compatible names are not typos.
-#
-# Path to the MariaDB unix socket.
-# Root access on a fresh install uses the socket — no root password is set.
-# This is the maintenance path for all initial DB provisioning tasks.
+# MariaDB keeps MySQL-compatible upstream names (datadir, socket, firewalld
+# service, [mysqld]) — not typos.
 mariadb_socket: /var/lib/mysql/mysql.sock
 
-# How long (seconds) to wait for the unix socket to appear before failing.
-# First-boot MariaDB initialization can take a few seconds; this conservative
-# value accommodates slow VMs without blocking forever.
-mariadb_socket_timeout: 60
+mariadb_socket_timeout: 60   # first-boot initialization can be slow on VMs
 
-# Name of the firewall service to remove during firewall narrowing.
-# The database image bakes this service open for any-host access; the role
-# removes it and adds a source-restricted rich rule in its place.
+# The database image bakes this service open; the role replaces it with a
+# source-restricted rich rule.
 mariadb_firewall_service: mysql
 
-# Privilege grant string (suffix after the database name) applied to the
-# application database account. Scoped to the application database only;
-# resolved at task time against app_db_name from group_vars/all/vars.yml.
-#
-# Format follows ansible.mariadb.mariadb_user priv syntax:
-#   ".*:<comma-separated privileges>"   (appended to app_db_name)
-#
-# DELIBERATE OVER-GRANT: DML + DDL is granted so the app team owns their
-# schema end-to-end via Alembic migrations. The running service uses only
-# SELECT and INSERT. See the LOUD comment in tasks/main.yml for the full
-# rationale and the production split (migration account vs. runtime account).
+# DELIBERATE OVER-GRANT: DML + DDL so the app team owns their schema via
+# Alembic. See the comment in tasks/main.yml for the production split.
 mariadb_user_priv_suffix: ".*:SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,DROP,INDEX"

@@ -1,32 +1,20 @@
 ---
-# group_vars/all/vars.yml — Non-sensitive variables visible to every host and role.
-#
-# This file uses the directory form of group_vars (all/ directory rather than all.yml)
-# which is mandatory: a flat file named all.vault.yml has stem "all.vault" and would
-# never be auto-loaded by the host_group_vars plugin, silently stripping app_db_password
-# from scope.
+# group_vars/all/vars.yml — non-sensitive variables visible to every host.
 
-# Management account name — must match the account baked into the base image (G2).
-# Used by connection setup; also the default user: for the authorized_key module
-# in the bootstrap_key_rotation role.
+# Kept as a directory (not a flat all.yml) so the vault sibling auto-loads;
+# flat "all.vault.yml" naming would never be picked up by the host_group_vars
+# plugin and would silently strip app_db_password from scope.
+
+# Management account name — must match the account baked into the base image.
 ansible_user: ansible
 
-# Path to the bootstrap (PSK) public key file, relative to the ansible/ run directory.
-# Read by the bootstrap_key_rotation role via lookup('file', ...) to remove the PSK entry.
-# The script scripts/generate-demo-keys.sh writes this file.
+# Public keys written by scripts/generate-demo-keys.sh; consumed by the
+# bootstrap_key_rotation role via lookup('file', ...).
 bootstrap_pubkey_path: "{{ playbook_dir }}/../keys/id_bootstrap.pub"
-
-# Path to the live management public key file, resolved via playbook_dir so the file lookup
-# works correctly whether invoked via site.yml or a standalone playbook in playbooks/.
-# The script scripts/generate-demo-keys.sh writes this file.
 live_pubkey_path: "{{ playbook_dir }}/../keys/id_live.pub"
 
-# Application database name — shared between mariadb_instance (creates the database) and
-# app_deploy / app_release (renders config.ini and runs Alembic migrations). Must be in all/
-# because group-scoped variables are not visible across groups.
+# Shared between mariadb_instance (creates the database/account) and
+# app_deploy/app_release (config.ini, Alembic). In all/ because group-scoped
+# variables are not visible across groups.
 app_db_name: corpapp
-
-# Application database account name — shared between mariadb_instance (creates the account)
-# and app_deploy / app_release (renders config.ini and runs Alembic migrations). Same cross-group
-# visibility requirement as app_db_name.
 app_db_user: corpapp_user

@@ -1,14 +1,7 @@
 ---
-# group_vars/database/vault.yml — Vault-encrypted credentials for the database host group.
+# group_vars/database/vault.yml — structural placeholder. No database-group
+# secrets exist in this design; the file keeps the layout future-proof.
+# app_db_password lives only in group_vars/all/vault.yml.
 #
-# STRUCTURAL PLACEHOLDER — no database-group-specific secrets exist in this design.
-# This file exists for structural completeness and to allow future additions without
-# a directory layout change.
-#
-# If group-specific secrets are added in the future, encrypt this file with:
-#   cd ansible/
-#   ansible-vault encrypt inventory/group_vars/database/vault.yml
-#
-# NOTE: app_db_password is NOT stored here. It lives exclusively in
-# group_vars/all/vault.yml (G4) so that the mariadb_instance, app_deploy, and app_release
-# roles resolve the same value regardless of which host group they run against.
+# Encrypt before use if secrets are added:
+#   cd ansible/ && ansible-vault encrypt inventory/group_vars/database/vault.yml
